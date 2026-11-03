@@ -162,8 +162,11 @@ assert.match(empty, /还没有提交/u, 'an empty history says so instead of dra
 const stale = render(snapshot({ actionFailure: { kind: 'stale', message: 'HTTP 404' } }))
 assert.match(stale, /重启应用/u, 'a stale host is reported as the restart it needs')
 
-const brokenHistory = render(snapshot({ commits: [], graphFailure: 'boom' }))
+const brokenHistory = render(snapshot({ commits: [], graphFailure: { kind: 'other', message: 'boom' } }))
 assert.match(brokenHistory, /历史读取失败/u, 'a failed history read is reported')
+
+const staleHistory = render(snapshot({ commits: [], graphFailure: { kind: 'stale', message: 'HTTP 404' } }))
+assert.match(staleHistory, /重启应用/u, 'a history route the host never registered says what fixes it')
 
 const open = render(snapshot({ selectedCommit: 'aaaaaaaaaaaaaaaa', commitDiff: DIFF }))
 assert.match(open, /这次提交的改动/u, 'an opened commit shows its own patch')

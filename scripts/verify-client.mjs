@@ -245,6 +245,8 @@ const calls = []
 let failing = false
 /** When set, the roots answer is the one a host from before `capabilities` sends. */
 let omitCapabilities = false
+/** When set, the history route answers this status instead of a graph. */
+let logFailure = 0
 
 globalThis.window = { location: { origin: 'http://127.0.0.1:3099' } }
 globalThis.fetch = async (request, init = {}) => {
@@ -254,6 +256,7 @@ globalThis.fetch = async (request, init = {}) => {
   const sent = typeof init.body === 'string' ? JSON.parse(init.body) : undefined
   calls.push({ path: url.pathname, query, method, body: sent, signal: init.signal })
   if (failing) return new Response('boom', { status: 500 })
+  if (url.pathname === GIT_LOG_PATH && logFailure !== 0) return new Response('nope', { status: logFailure })
   if (method === 'POST') {
     if (url.pathname === GIT_COMMIT_PATH) {
       return Response.json({ status: { repo: SUMMARY, files: [], filesTruncated: false }, commit: COMMITS[0], files: [] })
@@ -423,6 +426,23 @@ face.git.refresh()
 await settle()
 assert.deepEqual(state().capabilities, { stage: true, commit: true, switch: true }, 'and the newer host is read again')
 console.log('panel: a host without the capabilities field is read as read-only, not crashed on')
+
+// The history route has its own failure story: a missing one is the same stale
+// host, and any other status is a read that failed.
+logFailure = 404
+face.git.refresh()
+await settle()
+assert.deepEqual(state().graphFailure, { kind: 'stale', message: 'HTTP 404' }, 'a history route the host never registered is reported as stale')
+assert.equal(state().phase, 'ready', 'and the rest of the panel still works')
+logFailure = 500
+face.git.refresh()
+await settle()
+assert.equal(state().graphFailure.kind, 'other', 'any other failure is reported as itself')
+logFailure = 0
+face.git.refresh()
+await settle()
+assert.equal(state().graphFailure, null)
+console.log('panel: a missing history route says "restart", a failing one says why')
 
 // ---- Unloading ------------------------------------------------------------
 

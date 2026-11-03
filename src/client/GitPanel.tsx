@@ -362,9 +362,15 @@ function Graph(
   return (
     <section className={styles.section}>
       <SectionHead title={t('graph')} meta={total === 0 ? undefined : String(total)} />
-      {state.graphFailure !== null
-        ? <p className={styles.failure} role="status">{t('graphFailed', { message: state.graphFailure })}</p>
-        : null}
+      {state.graphFailure === null
+        ? null
+        : (
+          <p className={styles.failure} role="status">
+            {state.graphFailure.kind === 'stale'
+              ? t('hostStale')
+              : t('graphFailed', { message: state.graphFailure.message })}
+          </p>
+        )}
       {state.graphFailure === null && total === 0
         ? <p className={styles.notice}>{t('graphEmpty')}</p>
         : null}

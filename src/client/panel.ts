@@ -71,7 +71,7 @@ export interface GitPanelSnapshot {
   /** How many commits the graph may show; "load more" raises it. */
   graphLimit: number
   /** Why the history could not be read, when it could not. */
-  graphFailure: string | null
+  graphFailure: PanelFailure | null
   /** The commit message draft. */
   draft: string
   /** Which mutation is in flight, if any. */
@@ -404,10 +404,16 @@ export class GitPanelController implements SnapshotStore<GitPanelSnapshot> {
     try {
       const payload = await readJson<LogPayload>(GIT_LOG_PATH, { repo, limit: String(this.state.graphLimit) }, signal)
       if (this.disposed) return
-      this.set({ ...this.state, commits: payload.commits, graphFailure: payload.message ?? null })
+      this.set({
+        ...this.state,
+        commits: payload.commits,
+        graphFailure: payload.message === undefined ? null : { kind: 'other', message: payload.message },
+      })
     } catch (error: unknown) {
       if (this.disposed || signal.aborted) return
-      this.set({ ...this.state, commits: [], graphFailure: messageOf(error) })
+      // A route this process never registered is a host older than the page, and
+      // the reader is told the one thing that fixes it.
+      this.set({ ...this.state, commits: [], graphFailure: failureOf(error) })
     }
   }
 

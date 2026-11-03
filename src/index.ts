@@ -14,12 +14,14 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-tools'
 import { isAbsolute, resolve } from 'node:path'
 import {
-  GIT_DIFF_PATH, GIT_REPOS_PATH, GIT_ROOTS_PATH, GIT_STATUS_PATH,
-  type DiffAnswer, type DiffScope, type GitLimits, type RepoIdentity, type RepoRoot,
-  type ReposPayload, type RootsPayload, type StatusPayload,
+  GIT_COMMIT_PATH, GIT_DIFF_PATH, GIT_LOG_PATH, GIT_REPOS_PATH, GIT_ROOTS_PATH, GIT_STAGE_PATH, GIT_STATUS_PATH,
+  type Capabilities, type CommitAnswer, type CommitRequest, type DiffAnswer, type DiffScope, type GitLimits,
+  type LogPayload, type RepoIdentity, type RepoRoot, type ReposPayload, type RootsPayload, type StageAnswer,
+  type StageRequest, type StatusPayload,
 } from './contract.ts'
 import {
-  directoryExists, discoverRepos, Git, identifyRepo, listRepos, readDiff, readStatus, summarizeRepo,
+  applyStage, createCommit, directoryExists, discoverRepos, Git, identifyRepo, listRepos, readDiff, readLog,
+  readStatus, summarizeRepo,
 } from './git.ts'
 import { applyGitTools, type CallContext } from './tools.ts'
 
@@ -178,6 +180,10 @@ export function apply(ctx: Context, config: Config): void {
   const logLimit = clamp(config.logLimit, 20, 1, 500)
   const maxRepos = clamp(config.maxRepos, 100, 1, 1_000)
   const maxDepth = clamp(config.maxDepth, 4, 0, 12)
+  const allowStage = config.allowStage !== false
+  const allowCommit = config.allowCommit !== false
+  const allowSwitch = config.allowSwitch !== false
+  const capabilities: Capabilities = { stage: allowStage, commit: allowCommit, switch: allowSwitch }
   const git = new Git(limits)
 
   /** The directory the last tool call worked in, which a panel read falls back to. */
@@ -274,7 +280,7 @@ export function apply(ctx: Context, config: Config): void {
     if (sessionRoot !== undefined && sessionRoot.length > 0) {
       add(sessionRoot, sessionRoot.split(/[\\/]/u).filter(Boolean).pop() ?? sessionRoot, 'session')
     }
-    return { roots, default: roots[0]?.path ?? '' }
+    return { roots, default: roots[0]?.path ?? '', capabilities }
   }
 
   /** The root a discovery call scans when it names none. */
@@ -298,9 +304,9 @@ export function apply(ctx: Context, config: Config): void {
     maxPatchBytes,
     logLimit,
     maxFiles,
-    allowStage: config.allowStage !== false,
-    allowCommit: config.allowCommit !== false,
-    allowSwitch: config.allowSwitch !== false,
+    allowStage,
+    allowCommit,
+    allowSwitch,
   })
 
   // The browser carrier is optional: a headless deployment has no panel, and
@@ -308,7 +314,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.inject(['connection'], (webCtx) => {
     const connection = optionalService<ConnectionHandle>(webCtx, 'connection')
     if (connection === undefined) return
-    const serve = (path: string, method: 'GET', handler: (request: Request) => Promise<unknown>): void => {
+    const serve = (path: string, method: 'GET' | 'POST', handler: (request: Request) => Promise<unknown>): void => {
       webCtx.effect(() => connection.fetch.register({
         path,
         methods: [method],
@@ -357,7 +363,74 @@ export function apply(ctx: Context, config: Config): void {
         }),
       }
     })
+
+    // The history the graph draws: every ref, parents before children, bounded —
+    // the panel asks again with a larger limit when the reader wants more.
+    serve(GIT_LOG_PATH, 'GET', async (request): Promise<LogPayload> => {
+      const query = new URL(request.url).searchParams
+      const repo = await resolveNamed(query.get('repo') ?? '', routeBase())
+      const limit = quantity(query.get('limit'), logLimit, 1, 200)
+      const commits = await readLog(git, repo, { limit, all: true, topo: true, signal: request.signal })
+      return { repo: await summarizeRepo(git, repo.worktree, request.signal), commits }
+    })
+
+    // The panel's commit is the tool's commit — same message handling, same
+    // hooks, same refusal — with one addition: asking to commit everything first
+    // stages everything, untracked files included, because that is what the box
+    // says it does.
+    serve(GIT_COMMIT_PATH, 'POST', async (request): Promise<CommitAnswer> => {
+      if (!allowCommit) return { message: 'committing is disabled in this deployment' }
+      const body = await request.json().catch(() => ({})) as Partial<CommitRequest>
+      if (typeof body.repo !== 'string' || typeof body.message !== 'string') {
+        return { message: 'the request names no repository or no message' }
+      }
+      const repo = await resolveNamed(body.repo, routeBase())
+      if (body.all === true) {
+        await applyStage(git, repo, { mode: 'stage', all: true, signal: request.signal })
+      }
+      const committed = await createCommit(git, repo, { message: body.message, signal: request.signal })
+      return {
+        status: await readStatus(git, repo, { maxFiles, signal: request.signal }),
+        commit: committed.commit,
+        files: committed.files,
+      }
+    })
+
+    // The panel's stage and unstage go through the same guarded function the
+    // `git_stage` tool uses; a deployment that disabled staging answers with the
+    // refusal rather than registering a second, unguarded path.
+    serve(GIT_STAGE_PATH, 'POST', async (request): Promise<StageAnswer> => {
+      if (!allowStage) return { message: 'staging is disabled in this deployment' }
+      const body = await request.json().catch(() => ({})) as Partial<StageRequest>
+      if (typeof body.repo !== 'string') return { message: 'the request names no repository' }
+      const mode = body.mode
+      if (mode !== 'stage' && mode !== 'unstage' && mode !== 'discard') {
+        return { message: `unknown mode "${String(mode)}": use stage, unstage, or discard` }
+      }
+      const repo = await resolveNamed(body.repo, routeBase())
+      const status = await applyStage(git, repo, {
+        mode,
+        ...Array.isArray(body.paths) ? { paths: body.paths.filter(path => typeof path === 'string') } : {},
+        ...body.all === true ? { all: true } : {},
+        signal: request.signal,
+      })
+      return { status }
+    })
   })
+}
+
+/**
+ * One bounded quantity a request named.
+ * @param raw - the query parameter, possibly absent or not a number.
+ * @param fallback - the value to use when it is absent.
+ * @param min - the smallest allowed value.
+ * @param max - the largest allowed value.
+ * @returns the value, inside the bounds.
+ */
+function quantity(raw: string | null, fallback: number, min: number, max: number): number {
+  const parsed = raw === null ? Number.NaN : Number(raw)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(max, Math.max(min, Math.round(parsed)))
 }
 
 /** Run one async probe, answering undefined rather than throwing. */

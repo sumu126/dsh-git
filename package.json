@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Git repositories of a DSH workspace: a right-sidebar panel that lists the checkouts under a root, and tools for status, history, diffs, branches, staging, commits, and switching — all on the local command line, all bounded.",
+  "description": "Git repositories of a DSH workspace: a right-sidebar source-control panel with a commit box and a commit graph, and tools for status, history, diffs, branches, staging, commits, and switching — all on the local command line, all bounded.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -47,10 +47,11 @@
     "prepare": "npm run build",
     "prepack": "npm run build",
     "typecheck": "tsc -p tsconfig.types.json",
-    "test": "node --import tsx/esm --test tests/parse.test.ts",
+    "test": "node --import tsx/esm --test tests/parse.test.ts tests/graph.test.ts",
     "test:live": "node --import tsx/esm --test tests/git-live.test.ts",
     "verify:host": "node --import tsx/esm scripts/verify-host.mjs",
     "verify:client": "node --import tsx/esm scripts/verify-client.mjs",
+    "verify:render": "node --import tsx/esm scripts/verify-render.mjs",
     "verify:cards": "node --import tsx/esm scripts/verify-cards.mjs",
     "verify:loader": "node --import tsx/esm tests/loader-smoke.mjs",
     "verify:desktop": "node scripts/verify-desktop.mjs"
@@ -74,9 +75,11 @@
   "devDependencies": {
     "@types/node": "^22.20.0",
     "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
     "esbuild": "^0.25.0",
     "lightningcss": "^1.32.0",
     "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   }

@@ -533,6 +533,14 @@ export interface LogRequest {
   author?: string
   /** Walk every ref, not only HEAD. */
   all?: boolean
+  /**
+   * List parents before children.
+   *
+   * A graph layout needs it: the drawing assumes every parent appears after its
+   * child, and date order can interleave two branches so that a parent looks
+   * newer than its child.
+   */
+  topo?: boolean
   /** Cancellation. */
   signal?: AbortSignal
 }
@@ -546,6 +554,7 @@ export interface LogRequest {
  */
 export async function readLog(git: Git, repo: RepoIdentity, request: LogRequest): Promise<CommitSummary[]> {
   const args = ['log', `--max-count=${String(request.limit)}`, COMMIT_FORMAT]
+  if (request.topo === true) args.push('--topo-order')
   if (request.all === true) args.push('--all')
   if (request.author !== undefined && request.author.length > 0) args.push(`--author=${request.author}`)
   args.push(request.ref === undefined ? 'HEAD' : assertRevision(request.ref, 'ref'))

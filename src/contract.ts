@@ -187,6 +187,8 @@ export interface RootsPayload {
   roots: RepoRoot[]
   /** The root the host would use when a request names none. */
   default: string
+  /** What this deployment lets the panel do. */
+  capabilities: Capabilities
 }
 
 /** The payload `GIT_REPOS_PATH` answers with. */
@@ -214,6 +216,77 @@ export interface DiffAnswer {
   /** The diff, or none when the read failed. */
   diff?: DiffPayload
   /** Why the read failed, when it did. */
+  message?: string
+}
+
+/** Authenticated route that reads one repository's history. */
+export const GIT_LOG_PATH = '/api/dsh-git/log'
+
+/** Authenticated route that creates one commit. */
+export const GIT_COMMIT_PATH = '/api/dsh-git/commit'
+
+/** Authenticated route that stages, unstages, or discards paths. */
+export const GIT_STAGE_PATH = '/api/dsh-git/stage'
+
+/** What one deployment lets the panel do, so it never offers a refused action. */
+export interface Capabilities {
+  /** Whether staging is allowed. */
+  stage: boolean
+  /** Whether committing is allowed. */
+  commit: boolean
+  /** Whether switching branches is allowed. */
+  switch: boolean
+}
+
+/** The payload `GIT_LOG_PATH` answers with. */
+export interface LogPayload {
+  /** The repository the history belongs to. */
+  repo?: RepoSummary
+  /** Commits, newest first, with the parents a graph is drawn from. */
+  commits: CommitSummary[]
+  /** Why the history could not be read, when it could not. */
+  message?: string
+}
+
+/** The body `GIT_COMMIT_PATH` accepts. */
+export interface CommitRequest {
+  /** The repository, by path or name. */
+  repo: string
+  /** The commit message, used as the whole message. */
+  message: string
+  /** Stage every tracked change first. */
+  all?: boolean
+}
+
+/** The payload `GIT_COMMIT_PATH` answers with. */
+export interface CommitAnswer {
+  /** The status the commit left behind. */
+  status?: RepoStatus
+  /** The commit that was created. */
+  commit?: CommitSummary
+  /** Paths the commit changed. */
+  files?: DiffFile[]
+  /** Why the commit was refused, when it was. */
+  message?: string
+}
+
+/** The body `GIT_STAGE_PATH` accepts. */
+export interface StageRequest {
+  /** The repository, by path or name. */
+  repo: string
+  /** What to do. */
+  mode: 'stage' | 'unstage' | 'discard'
+  /** Paths, relative to the repository root. */
+  paths?: string[]
+  /** Apply to every path. */
+  all?: boolean
+}
+
+/** The payload `GIT_STAGE_PATH` answers with. */
+export interface StageAnswer {
+  /** The status the change left behind. */
+  status?: RepoStatus
+  /** Why the operation was refused, when it was. */
   message?: string
 }
 

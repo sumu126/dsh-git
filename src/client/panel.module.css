@@ -3,7 +3,8 @@
  *
  * Colours come from the shell's own aliases, each with a fallback, so the panel
  * inherits the active theme instead of carrying a palette that would be wrong in
- * one of them.
+ * one of them. The one exception is the graph lanes: a lane needs a colour that
+ * is distinguishable from its neighbours, which no theme alias provides.
  */
 
 .panel {
@@ -48,29 +49,67 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  direction: rtl;
-  text-align: left;
   color: var(--dsw-alias-label-secondary, currentColor);
+}
+
+.action,
+.smallAction,
+.iconAction,
+.primary {
+  font: inherit;
+  cursor: pointer;
+  color: inherit;
 }
 
 .action {
   flex: 0 0 auto;
   padding: 3px 8px;
-  color: inherit;
   background: transparent;
   border: 0.5px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.3));
   border-radius: 6px;
-  font: inherit;
-  cursor: pointer;
 }
 
-.action:hover:not(:disabled) {
+.action:hover:not(:disabled),
+.smallAction:hover:not(:disabled),
+.iconAction:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.12));
 }
 
-.action:disabled {
-  opacity: 0.5;
+.action:disabled,
+.smallAction:disabled,
+.primary:disabled {
+  opacity: 0.45;
   cursor: default;
+}
+
+.smallAction {
+  padding: 1px 6px;
+  background: transparent;
+  border: 0.5px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.3));
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary, currentColor);
+}
+
+.iconAction {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: 0.5px solid transparent;
+  border-radius: 4px;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  line-height: 1;
+}
+
+.primary {
+  min-width: 92px;
+  padding: 5px 14px;
+  background: var(--dsw-alias-brand-primary, #3b82f6);
+  border: 0;
+  border-radius: 7px;
+  color: #fff;
+  font-weight: 600;
 }
 
 .notice {
@@ -81,7 +120,7 @@
 
 .failure {
   margin: 0;
-  padding: 10px;
+  padding: 8px 10px;
   color: var(--dsw-alias-state-error-primary, #d33);
 }
 
@@ -97,7 +136,7 @@
   margin: 0;
   padding: 4px;
   list-style: none;
-  max-height: 40%;
+  max-height: 26vh;
   overflow: auto;
   border-bottom: 0.5px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.25));
 }
@@ -108,7 +147,7 @@
   grid-template-areas: 'name meta' 'counts counts';
   gap: 1px 8px;
   width: 100%;
-  padding: 6px 8px;
+  padding: 5px 8px;
   color: inherit;
   background: transparent;
   border: 0;
@@ -143,7 +182,7 @@
 }
 
 .branch {
-  max-width: 160px;
+  max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -170,6 +209,7 @@
   align-items: baseline;
   gap: 8px;
   padding: 8px 10px 4px;
+  min-width: 0;
 }
 
 .detailName {
@@ -180,6 +220,12 @@
   color: var(--dsw-alias-label-tertiary, currentColor);
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detailCounts {
+  margin-left: auto;
+  color: var(--dsw-alias-label-tertiary, currentColor);
   white-space: nowrap;
 }
 
@@ -200,7 +246,9 @@
   padding: 6px 10px;
   position: sticky;
   top: 0;
-  background: inherit;
+  z-index: 1;
+  background: var(--dsw-alias-bg-layer-1, transparent);
+  backdrop-filter: blur(2px);
 }
 
 .sectionTitle {
@@ -211,6 +259,11 @@
   margin-left: auto;
   color: var(--dsw-alias-label-tertiary, currentColor);
   white-space: nowrap;
+}
+
+.sectionActions {
+  display: inline-flex;
+  gap: 4px;
 }
 
 .scopes {
@@ -234,6 +287,56 @@
   border-color: var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.35));
   background: var(--dsw-alias-bg-layer-2, rgba(127, 127, 127, 0.12));
 }
+
+/* ---- The commit box ---------------------------------------------------- */
+
+.commitBox {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+.message {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  resize: vertical;
+  min-height: 46px;
+  max-height: 160px;
+  color: inherit;
+  background: var(--dsw-alias-bg-layer-2, rgba(127, 127, 127, 0.06));
+  border: 0.5px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.3));
+  border-radius: 8px;
+  font: inherit;
+  line-height: 1.45;
+}
+
+.message::placeholder {
+  color: var(--dsw-alias-label-tertiary, currentColor);
+}
+
+.commitRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.commitRow .primary {
+  margin-left: auto;
+}
+
+/* ---- The changed paths ------------------------------------------------- */
 
 .files {
   margin: 0;
@@ -278,14 +381,154 @@
   font-family: var(--ds-font-family-code, ui-monospace, monospace);
 }
 
+.fileActions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
 .patch {
   margin: 0;
   padding: 8px 10px 12px;
   overflow: auto;
-  max-height: 55vh;
+  max-height: 46vh;
   font-family: var(--ds-font-family-code, ui-monospace, monospace);
   font-size: 11px;
   line-height: 1.45;
   white-space: pre;
   color: var(--dsw-alias-label-secondary, currentColor);
+}
+
+/* ---- The graph --------------------------------------------------------- */
+
+.graph {
+  position: relative;
+  margin: 0;
+  overflow: hidden;
+}
+
+.graphInk {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.commits {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.commitItem {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.commit {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 3px 8px 3px 6px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.commit:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.12));
+}
+
+.commitOpen {
+  background: var(--dsw-alias-bg-layer-3, rgba(127, 127, 127, 0.16));
+}
+
+.commitLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.commitSubject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commitMeta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  font-size: 11px;
+}
+
+.commitDate,
+.commitHash {
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+  flex: 0 0 auto;
+}
+
+.commitHash {
+  opacity: 0.8;
+}
+
+.refs {
+  display: inline-flex;
+  gap: 3px;
+  flex: 0 0 auto;
+  max-width: 45%;
+  overflow: hidden;
+}
+
+.ref,
+.refHead,
+.refTag {
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 14ch;
+  border: 0.5px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.35));
+  color: var(--dsw-alias-label-secondary, currentColor);
+}
+
+.refHead {
+  border-color: transparent;
+  background: var(--dsw-alias-brand-primary, #3b82f6);
+  color: #fff;
+}
+
+.refTag {
+  border-color: transparent;
+  background: var(--dsw-alias-bg-layer-3, rgba(127, 127, 127, 0.2));
+}
+
+.more {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 10px 10px;
+}
+
+.more .footnote {
+  padding: 0;
+}
+
+.commitDetail {
+  border-top: 0.5px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.2));
 }

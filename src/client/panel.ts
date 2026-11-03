@@ -15,13 +15,22 @@
 
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import {
-  GIT_DIFF_PATH, GIT_REPOS_PATH, GIT_ROOTS_PATH, GIT_STATUS_PATH,
-  type DiffAnswer, type DiffPayload, type RepoRoot, type ReposPayload, type RepoStatus,
-  type RepoSummary, type RootsPayload, type StatusPayload,
+  GIT_COMMIT_PATH, GIT_DIFF_PATH, GIT_LOG_PATH, GIT_REPOS_PATH, GIT_ROOTS_PATH, GIT_STAGE_PATH, GIT_STATUS_PATH,
+  type Capabilities, type CommitAnswer, type CommitSummary, type DiffAnswer, type DiffPayload, type LogPayload,
+  type RepoRoot, type ReposPayload, type RepoStatus, type RepoSummary, type RootsPayload, type StageAnswer,
+  type StatusPayload,
 } from '../contract.ts'
 
 /** The comparison the panel's diff section shows. */
 export type PanelScope = 'working' | 'staged'
+
+/** What went wrong, and whether the host is simply older than the page. */
+export interface PanelFailure {
+  /** `stale` is a route this process never registered: the page outlived a build. */
+  kind: 'stale' | 'other'
+  /** The sentence to show, or the raw reason for `other`. */
+  message: string
+}
 
 /** The selected repository's detail, as the panel draws it. */
 export interface PanelDetail {
@@ -43,6 +52,8 @@ export interface GitPanelSnapshot {
   roots: RepoRoot[]
   /** The selected root. */
   root: string
+  /** What this deployment lets the panel do. */
+  capabilities: Capabilities
   /** Repositories found under the root. */
   repos: RepoSummary[]
   /** True when the root's scan stopped at the repository bound. */
@@ -55,6 +66,24 @@ export interface GitPanelSnapshot {
   scope: PanelScope
   /** Why the repository list is empty, when that is a refusal. */
   message: string | null
+  /** Every recent commit across every ref, newest first, for the graph. */
+  commits: CommitSummary[]
+  /** How many commits the graph may show; "load more" raises it. */
+  graphLimit: number
+  /** Why the history could not be read, when it could not. */
+  graphFailure: string | null
+  /** The commit message draft. */
+  draft: string
+  /** Which mutation is in flight, if any. */
+  busy: 'commit' | 'stage' | null
+  /** Why the last mutation failed, if it did. */
+  actionFailure: PanelFailure | null
+  /** The commit whose patch is open under the graph. */
+  selectedCommit: string | null
+  /** The patch of the open commit, once it arrived. */
+  commitDiff: DiffPayload | null
+  /** True while the open commit's patch is in flight. */
+  commitLoading: boolean
 }
 
 /** The gestures the panel offers. */
@@ -67,11 +96,44 @@ export interface GitPanelActions {
   select: (repoPath: string) => void
   /** Show another comparison. */
   chooseScope: (scope: PanelScope) => void
+  /** Write the commit message draft. */
+  writeDraft: (text: string) => void
+  /** Commit the staged changes; `all` stages every change first. */
+  commit: (all: boolean) => void
+  /** Stage one path. */
+  stage: (path: string) => void
+  /** Unstage one path. */
+  unstage: (path: string) => void
+  /** Stage every change. */
+  stageAll: () => void
+  /** Unstage everything. */
+  unstageAll: () => void
+  /** Open one commit's patch under the graph. */
+  openCommit: (hash: string) => void
+  /** Close the open patch. */
+  closeCommit: () => void
+  /** Raise the number of commits the graph reads. */
+  loadMore: () => void
 }
+
+/** The commit limit the graph opens on, and how far "load more" takes it. */
+const GRAPH_STEP = 50
+
+/** The most commits the graph will ever read in one request. */
+const GRAPH_MAX = 200
+
+/** The sentinel the view turns into "write a message first". */
+export const COMMIT_NEEDS_MESSAGE = 'commit-needs-message'
 
 /** The message one thrown value carries. */
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/** Classify one failed read or write. */
+function failureOf(error: unknown): PanelFailure {
+  const message = messageOf(error)
+  return { kind: /^HTTP 404$/u.test(message) ? 'stale' : 'other', message }
 }
 
 /**
@@ -92,16 +154,56 @@ async function readJson<T>(path: string, query: Record<string, string>, signal: 
   return await response.json() as T
 }
 
+/**
+ * Post one JSON body to this plugin's own route.
+ * @param path - the route.
+ * @param body - the JSON body.
+ * @param signal - cancellation.
+ * @returns the decoded answer.
+ * @throws {Error} when the route answered a non-success status.
+ */
+async function sendJson<T>(path: string, body: unknown, signal: AbortSignal): Promise<T> {
+  const response = await fetch(new URL(path, window.location.origin), {
+    method: 'POST',
+    signal,
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) throw new Error(`HTTP ${String(response.status)}`)
+  return await response.json() as T
+}
+
 /** The panel's readable, refreshable state. */
 export class GitPanelController implements SnapshotStore<GitPanelSnapshot> {
   private state: GitPanelSnapshot = {
-    phase: 'idle', roots: [], root: '', repos: [], truncated: false,
-    selected: null, detail: null, scope: 'working', message: null,
+    phase: 'idle',
+    roots: [],
+    root: '',
+    capabilities: { stage: false, commit: false, switch: false },
+    repos: [],
+    truncated: false,
+    selected: null,
+    detail: null,
+    scope: 'working',
+    message: null,
+    commits: [],
+    graphLimit: GRAPH_STEP,
+    graphFailure: null,
+    draft: '',
+    busy: null,
+    actionFailure: null,
+    selectedCommit: null,
+    commitDiff: null,
+    commitLoading: false,
   }
 
   private readonly listeners = new Set<() => void>()
 
+  /** The navigation currently in flight; a newer one aborts it. */
   private abort: AbortController | null = null
+
+  /** The mutation currently in flight; navigation does not abort it. */
+  private action: AbortController | null = null
 
   private disposed = false
 
@@ -111,15 +213,36 @@ export class GitPanelController implements SnapshotStore<GitPanelSnapshot> {
     // opened should appear without reopening it.
     refresh: () => { void this.navigate({ roots: true }) },
     chooseRoot: (path) => {
-      this.set({ ...this.state, root: path, selected: null, detail: null, message: null })
+      this.set({
+        ...this.state, root: path, selected: null, detail: null, message: null,
+        commits: [], selectedCommit: null, commitDiff: null,
+      })
       void this.navigate()
     },
     select: (repoPath) => {
-      this.set({ ...this.state, selected: repoPath, detail: null })
+      this.set({ ...this.state, selected: repoPath, detail: null, selectedCommit: null, commitDiff: null })
       void this.navigate()
     },
     chooseScope: (scope) => {
       this.set({ ...this.state, scope })
+      void this.navigate()
+    },
+    writeDraft: (text) => {
+      this.set({ ...this.state, draft: text, actionFailure: null })
+    },
+    commit: (all) => { void this.commitMessage(all) },
+    stage: (path) => { void this.mutateStage('stage', [path]) },
+    unstage: (path) => { void this.mutateStage('unstage', [path]) },
+    stageAll: () => { void this.mutateStage('stage', undefined, true) },
+    unstageAll: () => { void this.mutateStage('unstage', undefined, true) },
+    openCommit: (hash) => { void this.openCommitPatch(hash) },
+    closeCommit: () => {
+      this.set({ ...this.state, selectedCommit: null, commitDiff: null, commitLoading: false })
+    },
+    loadMore: () => {
+      const limit = Math.min(GRAPH_MAX, this.state.graphLimit + GRAPH_STEP)
+      if (limit === this.state.graphLimit) return
+      this.set({ ...this.state, graphLimit: limit })
       void this.navigate()
     },
   }
@@ -172,12 +295,15 @@ export class GitPanelController implements SnapshotStore<GitPanelSnapshot> {
   dispose(): void {
     this.disposed = true
     this.abort?.abort()
+    this.action?.abort()
     this.abort = null
+    this.action = null
     this.listeners.clear()
   }
 
   /**
-   * Run one navigation: roots, then repositories, then the selection's detail.
+   * Run one navigation: roots, then repositories, then the selection's detail
+   * and the history.
    * @param options - whether the root list itself has to be re-read.
    */
   private async navigate(options: { roots?: boolean } = {}): Promise<void> {
@@ -189,7 +315,13 @@ export class GitPanelController implements SnapshotStore<GitPanelSnapshot> {
     try {
       if (options.roots === true || this.state.roots.length === 0) await this.loadRoots(controller.signal)
       await this.loadRepos(controller.signal)
-      if (this.state.selected !== null) await this.loadDetail(controller.signal)
+      if (this.state.selected !== null) {
+        await Promise.all([
+          this.loadDetail(controller.signal),
+          this.loadLog(controller.signal),
+        ])
+      }
+      if (this.disposed || controller.signal.aborted) return
       this.set({ ...this.state, phase: 'ready' })
     } catch (error: unknown) {
       // A read the panel itself superseded is not a failure to report.
@@ -201,18 +333,18 @@ export class GitPanelController implements SnapshotStore<GitPanelSnapshot> {
     }
   }
 
-  /** Read the roots a panel may browse. */
+  /** Read the roots a panel may browse, and what the host allows. */
   private async loadRoots(signal: AbortSignal): Promise<void> {
     const payload = await readJson<RootsPayload>(GIT_ROOTS_PATH, {}, signal)
     if (this.disposed) return
     const root = this.state.root.length > 0 ? this.state.root : payload.default
-    this.set({ ...this.state, roots: payload.roots, root })
+    this.set({ ...this.state, roots: payload.roots, root, capabilities: payload.capabilities })
   }
 
   /** Read the repositories under the selected root. */
   private async loadRepos(signal: AbortSignal): Promise<void> {
     if (this.state.root.length === 0) {
-      this.set({ ...this.state, repos: [], truncated: false, selected: null, detail: null })
+      this.set({ ...this.state, repos: [], truncated: false, selected: null, detail: null, commits: [] })
       return
     }
     const payload = await readJson<ReposPayload>(GIT_REPOS_PATH, { root: this.state.root }, signal)
@@ -229,7 +361,7 @@ export class GitPanelController implements SnapshotStore<GitPanelSnapshot> {
     })
   }
 
-  /** Read the selected repository's status and diff. */
+  /** Read the selected repository's status and the diff on screen. */
   private async loadDetail(signal: AbortSignal): Promise<void> {
     const repo = this.state.selected
     if (repo === null) {
@@ -251,5 +383,103 @@ export class GitPanelController implements SnapshotStore<GitPanelSnapshot> {
         loading: false,
       },
     })
+  }
+
+  /** Read the history the graph draws. */
+  private async loadLog(signal: AbortSignal): Promise<void> {
+    const repo = this.state.selected
+    if (repo === null) {
+      this.set({ ...this.state, commits: [], graphFailure: null })
+      return
+    }
+    try {
+      const payload = await readJson<LogPayload>(GIT_LOG_PATH, { repo, limit: String(this.state.graphLimit) }, signal)
+      if (this.disposed) return
+      this.set({ ...this.state, commits: payload.commits, graphFailure: payload.message ?? null })
+    } catch (error: unknown) {
+      if (this.disposed || signal.aborted) return
+      this.set({ ...this.state, commits: [], graphFailure: messageOf(error) })
+    }
+  }
+
+  /**
+   * Run one mutation, then re-read what it changed.
+   *
+   * A click is worth a handful of local git commands: the statuses, the diff on
+   * screen, and the graph all belong to the same truth, so one read after the
+   * write is cheaper than a panel that shows a stale half.
+   * @param kind - which mutation this is.
+   * @param work - performs the request.
+   * @param after - applies what the answer already says, before the re-read.
+   */
+  private async mutate<T>(
+    kind: 'commit' | 'stage',
+    work: (signal: AbortSignal) => Promise<T>,
+    after?: (value: T) => void,
+  ): Promise<void> {
+    if (this.disposed || this.state.busy !== null) return
+    this.abort?.abort()
+    const controller = new AbortController()
+    this.action = controller
+    this.set({ ...this.state, busy: kind, actionFailure: null })
+    try {
+      const value = await work(controller.signal)
+      if (this.disposed) return
+      after?.(value)
+      await this.navigate()
+    } catch (error: unknown) {
+      if (this.disposed) return
+      this.set({ ...this.state, actionFailure: failureOf(error) })
+    } finally {
+      if (this.action === controller) this.action = null
+      if (!this.disposed) this.set({ ...this.state, busy: null })
+    }
+  }
+
+  /** Commit the staged changes, or everything. */
+  private async commitMessage(all: boolean): Promise<void> {
+    const repo = this.state.selected
+    if (repo === null) return
+    const message = this.state.draft.trim()
+    if (message.length === 0) {
+      this.set({ ...this.state, actionFailure: { kind: 'other', message: COMMIT_NEEDS_MESSAGE } })
+      return
+    }
+    await this.mutate('commit', async signal => await sendJson<CommitAnswer>(GIT_COMMIT_PATH, {
+      repo, message, ...all ? { all: true } : {},
+    }, signal), (answer) => {
+      if (answer.message !== undefined) throw new Error(answer.message)
+      this.set({ ...this.state, draft: '', selectedCommit: null, commitDiff: null })
+    })
+  }
+
+  /** Stage or unstage one path, or everything. */
+  private async mutateStage(mode: 'stage' | 'unstage', paths: string[] | undefined, all = false): Promise<void> {
+    const repo = this.state.selected
+    if (repo === null) return
+    await this.mutate('stage', async signal => await sendJson<StageAnswer>(GIT_STAGE_PATH, {
+      repo, mode, ...paths === undefined ? {} : { paths }, ...all ? { all: true } : {},
+    }, signal), (answer) => {
+      if (answer.message !== undefined) throw new Error(answer.message)
+    })
+  }
+
+  /** Read one commit's patch and open it under the graph. */
+  private async openCommitPatch(hash: string): Promise<void> {
+    const repo = this.state.selected
+    if (repo === null || this.disposed) return
+    if (this.state.selectedCommit === hash) {
+      this.set({ ...this.state, selectedCommit: null, commitDiff: null, commitLoading: false })
+      return
+    }
+    this.set({ ...this.state, selectedCommit: hash, commitDiff: null, commitLoading: true, actionFailure: null })
+    try {
+      const answer = await readJson<DiffAnswer>(GIT_DIFF_PATH, { repo, scope: 'commit', ref: hash }, new AbortController().signal)
+      if (this.disposed) return
+      this.set({ ...this.state, commitDiff: answer.diff ?? null, commitLoading: false })
+    } catch (error: unknown) {
+      if (this.disposed) return
+      this.set({ ...this.state, commitLoading: false, actionFailure: failureOf(error) })
+    }
   }
 }

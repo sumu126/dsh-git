@@ -103,6 +103,9 @@ const ROUTES = {
   repos: '/api/dsh-git/repos',
   status: '/api/dsh-git/status',
   diff: '/api/dsh-git/diff',
+  log: '/api/dsh-git/log',
+  commit: '/api/dsh-git/commit',
+  stage: '/api/dsh-git/stage',
 }
 console.log('runtime imported: cordis, system-prompt, dsh-tools, schemastery')
 
@@ -219,9 +222,10 @@ assert.equal(meta.variant, 'status')
 assert.doesNotThrow(() => JSON.stringify(meta))
 console.log('metadata: the status card is JSON and carries its discriminator')
 
-// The panel's routes have to register on the 0.2.1 carrier too.
-for (let attempt = 0; attempt < 100 && routes.size < 4; attempt++) await new Promise(resolve => setTimeout(resolve, 10))
-assert.equal(routes.size, 4, 'four panel routes are registered')
+// The panel's routes have to register on the 0.2.1 carrier too: the four reads,
+// the history the graph draws, and the two writes.
+for (let attempt = 0; attempt < 100 && routes.size < 7; attempt++) await new Promise(resolve => setTimeout(resolve, 10))
+assert.equal(routes.size, 7, 'seven panel routes are registered')
 for (const path of Object.values(ROUTES)) {
   assert.ok(routes.has(path), `${path} is registered`)
 }
@@ -230,7 +234,14 @@ const answer = await routes.get(ROUTES.status).fetch(
 )
 const body = await answer.json()
 assert.equal(body.status.repo.name, 'checkout')
-console.log('routes: the panel reads the same repository the tools read')
+
+const history = await routes.get(ROUTES.log).fetch(
+  new Request(`http://127.0.0.1${ROUTES.log}?repo=checkout&limit=20`),
+)
+const logBody = await history.json()
+assert.ok(logBody.commits.length >= 1, 'the graph route reads a history')
+assert.ok(Array.isArray(logBody.commits[0].parents), 'with the parents a drawing needs')
+console.log('routes: the panel reads the same repository, and the same history, the tools do')
 
 await ctx.fiber.dispose()
 console.log('desktop check passed')

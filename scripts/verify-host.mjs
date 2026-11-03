@@ -23,7 +23,9 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { ToolRuntime } from '@deepseek-ai/dsh-tools'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools/src/json-schema.ts'
 import * as gitPlugin from '../src/index.ts'
-import { GIT_DIFF_PATH, GIT_REPOS_PATH, GIT_ROOTS_PATH, GIT_STATUS_PATH } from '../src/contract.ts'
+import {
+  GIT_COMMIT_PATH, GIT_DIFF_PATH, GIT_LOG_PATH, GIT_REPOS_PATH, GIT_ROOTS_PATH, GIT_STAGE_PATH, GIT_STATUS_PATH,
+} from '../src/contract.ts'
 
 const ROOT = mkdtempSync(join(tmpdir(), 'dsh-git-host-'))
 process.on('exit', () => { rmSync(ROOT, { recursive: true, force: true }) })
@@ -104,7 +106,7 @@ async function mount(config = {}, options = {}) {
       },
     },
   })
-  for (let attempt = 0; attempt < 100 && routes.size < 4; attempt++) {
+  for (let attempt = 0; attempt < 100 && routes.size < 7; attempt++) {
     await new Promise(resolve => setTimeout(resolve, 10))
   }
   return { ctx, routes }
@@ -136,6 +138,18 @@ async function callRoute(routes, path, query = {}) {
   const url = new URL(`http://127.0.0.1${path}`)
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value)
   const response = await route.fetch(new Request(url, { method: 'GET' }))
+  return { status: response.status, body: await response.json() }
+}
+
+/** Post one JSON body to a registered route, the way the panel does. */
+async function postRoute(routes, path, body) {
+  const route = routes.get(path)
+  assert.ok(route !== undefined, `${path} is registered`)
+  const response = await route.fetch(new Request(`http://127.0.0.1${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  }))
   return { status: response.status, body: await response.json() }
 }
 
@@ -276,6 +290,7 @@ const roots = await callRoute(routes, GIT_ROOTS_PATH)
 assert.equal(roots.status, 200)
 assert.equal(roots.body.default, ROOT, 'the configured root is the default')
 assert.deepEqual(roots.body.roots.map(entry => entry.source), ['config', 'session'], 'the configured root, then the session directory')
+assert.deepEqual(roots.body.capabilities, { stage: true, commit: true, switch: true }, 'the panel is told what this deployment allows')
 console.log(`route ${GIT_ROOTS_PATH}: ${roots.body.roots.map(entry => entry.path).join(', ')}`)
 
 const listed = await callRoute(routes, GIT_REPOS_PATH, { root: ROOT })
@@ -293,6 +308,37 @@ const routeDiff = await callRoute(routes, GIT_DIFF_PATH, { repo: 'work', scope: 
 assert.equal(routeDiff.status, 200)
 assert.equal(routeDiff.body.diff.scope, 'staged')
 
+// The graph route: every ref, parents before children, with the parents a
+// drawing needs — and bounded, so one click cannot read a whole history.
+const routeLog = await callRoute(routes, GIT_LOG_PATH, { repo: 'work', limit: '2' })
+assert.equal(routeLog.status, 200)
+assert.equal(routeLog.body.repo.name, 'work')
+assert.equal(routeLog.body.commits.length, 2, 'the limit is honoured')
+assert.ok(Array.isArray(routeLog.body.commits[0].parents), 'each commit carries its parents')
+assert.equal(routeLog.body.commits[0].short, routeStatus.body.status.repo.head, 'the newest commit the graph reads is the branch head')
+const boundedLog = await callRoute(routes, GIT_LOG_PATH, { repo: 'work', limit: '999' })
+assert.ok(boundedLog.body.commits.length <= 200, 'the route bounds what the request asked for')
+
+// The panel's commit is the tool's commit. Its "everything" form also stages
+// untracked files, because that is what the box promises.
+put(REPO, 'from the panel.txt', 'written\n')
+const panelCommit = await postRoute(routes, GIT_COMMIT_PATH, { repo: 'work', message: 'committed from the panel', all: true })
+assert.equal(panelCommit.status, 200)
+assert.equal(panelCommit.body.commit.subject, 'committed from the panel')
+assert.equal(panelCommit.body.status.repo.untracked, 0, 'the untracked file was staged and committed')
+assert.equal(panelCommit.body.status.repo.dirty, false)
+
+// The panel's staging goes through the guarded function the tool uses.
+put(REPO, 'alpha.txt', 'one\ntwo\nthree\n')
+const panelStage = await postRoute(routes, GIT_STAGE_PATH, { repo: 'work', mode: 'stage', paths: ['alpha.txt'] })
+assert.equal(panelStage.status, 200)
+assert.equal(panelStage.body.status.repo.staged, 1)
+const panelUnstage = await postRoute(routes, GIT_STAGE_PATH, { repo: 'work', mode: 'unstage', paths: ['alpha.txt'] })
+assert.equal(panelUnstage.body.status.repo.staged, 0)
+const blanketDiscard = await postRoute(routes, GIT_STAGE_PATH, { repo: 'work', mode: 'discard', all: true })
+assert.equal(blanketDiscard.body.status, undefined, 'a blanket discard is refused')
+assert.match(blanketDiscard.body.message, /discarding every change at once/u)
+
 // A route answers a refusal as a body: the panel renders the sentence instead of
 // reporting a transport failure.
 const routeRefusal = await callRoute(routes, GIT_STATUS_PATH, { repo: 'nope' })
@@ -301,7 +347,7 @@ assert.match(routeRefusal.body.message, /neither a directory nor the name of a r
 const routeNotARepo = await callRoute(routes, GIT_STATUS_PATH, { repo: notARepo })
 assert.equal(routeNotARepo.status, 200)
 assert.match(routeNotARepo.body.message, /not inside a git repository/u)
-console.log('routes: repos, status, and diff answer the panel; a refusal is a message in a 200')
+console.log('routes: roots, repos, status, diff, log, commit, and stage all answer the panel; a refusal is a message in a 200')
 await ctx.fiber.dispose()
 
 // ---- A deployment that allows only reads -----------------------------------

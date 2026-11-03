@@ -12,8 +12,22 @@
  * @module dsh-git/scripts/css-stub
  */
 
-/** Marker the hook returns for a stylesheet. */
-const EMPTY = 'export default {}'
+/**
+ * Source of the stub module: a class map that answers every key with its name.
+ *
+ * A plain `{}` would make a component that builds `"${styles.a} ${styles.b}"`
+ * render `class="undefined undefined"`, and a check would then be asserting the
+ * stub's shortcoming instead of the component's markup.
+ */
+const EMPTY = [
+  'const names = new Proxy({}, {',
+  '  get(target, key) {',
+  '    if (typeof key !== "string") return Reflect.get(target, key)',
+  '    return key',
+  '  },',
+  '})',
+  'export default names',
+].join('\n')
 
 /**
  * Claim every `.css` specifier and hand back an empty class map.

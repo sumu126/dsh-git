@@ -1,9 +1,10 @@
 # dsh-git
 
-Git repositories of a DSH workspace: a right-sidebar panel that lists the
-checkouts under a root and shows what changed, and a set of tools that let an
-agent read status, history, and diffs — and, when the deployment allows it,
-stage, commit, and switch branches.
+Git repositories of a DSH workspace: a right-sidebar source-control page — commit
+box, changes with their stage actions, the diff on screen, and a commit graph
+drawing every commit — plus a set of tools that let an agent read status,
+history, and diffs and, when the deployment allows it, stage, commit, and switch
+branches.
 
 Everything runs the local `git` command line. There is no network operation, no
 remote fetch, and no push: this plugin manages *this* machine's working trees.
@@ -23,28 +24,38 @@ remote fetch, and no push: this plugin manages *this* machine's working trees.
 | `git_commit` | One commit from the staged tree, or from every tracked change with `all: true`. |
 | `git_switch` | Switch to a branch, create one, or detach at a commit. Nothing is forced. |
 
-The three mutating tools are registered only when their switch is on. A
+The mutating tools and the panel's writes are gated by the same three switches. A
 deployment that wants a read-only history viewer turns `allowStage`,
-`allowCommit`, and `allowSwitch` off, and the model is offered no mutating tool
-at all — it never sees a tool it cannot use.
-
-The panel is read-only by design: changing a working tree is what the tools are
-for, and a panel that could also commit would need an approval story of its own.
+`allowCommit`, and `allowSwitch` off: the model is offered no mutating tool, and
+the panel shows no commit box and no stage action — never an action the host
+would refuse.
 
 ## The panel
 
 One right-sidebar page type, reached from the guide card:
 
 - a root picker — the configured root, the registered workspaces, and the last
-  directory a tool call worked in;
-- the repositories under that root, with branch, upstream position, and change
-  counts;
-- the selected repository's changed paths, and the diff for **Working** or
-  **Staged**, with a byte-bounded patch.
+  directory a tool call worked in — then the repositories under that root;
+- the selected repository's **commit box**: the message, an optional "stage
+  everything", and a button (Ctrl+Enter commits);
+- **changes**: every changed path with the letters git reported, one button to
+  stage an unstaged path and one to unstage a staged one, plus "stage all" and
+  "unstage all";
+- **diff**: the working-tree or staged comparison, with a byte-bounded patch;
+- **graph**: every commit across every ref, newest first, drawn in lanes — a dot
+  per commit, a curve per parent, branch and tag chips on the refs that point at
+  it — with the author and date. Clicking a commit opens the patch it introduced,
+  so "every change" is one click away. The graph opens at 50 commits and reads
+  more on demand, never more than 200.
 
-It reads through this plugin's own authenticated routes
-(`/api/dsh-git/{roots,repos,status,diff}`), which call the same functions the
-tools call. A panel and a tool call cannot report two different branches.
+A deployment that turned committing off is shown no commit box at all; the page
+adapts to what the host answered, rather than offering a button that would fail.
+
+It reads and writes through this plugin's own authenticated routes
+(`/api/dsh-git/{roots,repos,status,diff,log,commit,stage}`), which call the same
+functions the tools call — the commit route runs the same `createCommit`, and the
+staging route the same guarded `applyStage`. A panel and a tool call cannot report
+two different branches, and a refusal reads the same in both places.
 
 ## Configuration
 
@@ -85,6 +96,9 @@ manages exactly one directory names it.
   it. The mutating calls ask for the lock explicitly.
 - `discard` has no "everything" form. Losing every unstaged edit is not something
   one boolean should be able to ask for.
+- The commit box's "stage everything" stages tracked **and** untracked paths
+  before committing, because that is what its label says; the tool's `all: true`
+  is `git commit --all`, which is tracked paths only.
 - No fetch, pull, push, or clone. Remotes are read, never contacted.
 
 ## Install
@@ -151,12 +165,13 @@ against real harness code instead of doubles of it.
 ```
 npm install
 npm run typecheck      # tsc, against the harness declarations
-npm test               # 15 parser checks
+npm test               # 15 parser checks + 7 graph-layout checks
 npm run test:live      # 20 checks against real repositories in a temp dir
 npm run build          # lib/index.js (ESM) and lib/client.js (module-table factory)
-npm run verify:host    # mounts the plugin, calls every tool, validates its output schema
+npm run verify:host    # mounts the plugin, calls every tool, exercises every route
 npm run verify:cards   # what the client's row reads out of metadata
 npm run verify:client  # runs the browser half against node doubles, then loads lib/client.js
+npm run verify:render  # renders the panel and asserts the picture a reader gets
 npm run verify:loader  # composition through the real Loader, then unloads the row
 npm run verify:desktop # the built plugin on the app's OWN 0.2.1 runtime (see below)
 ```
@@ -164,6 +179,14 @@ npm run verify:desktop # the built plugin on the app's OWN 0.2.1 runtime (see be
 `verify:client` reads `lib/client.js` as well as the sources — a banner or an
 external that the shell does not seed would be a bundle that never registers
 anything, and every source-level check would still pass. So build before it.
+
+`verify:render` is the gate that keeps the page from disappearing: every other
+client check runs registration and state, and none of them mounts a component.
+A missing export or a field read off an absent object crashes the render, the
+shell draws nothing, and every other gate stays green — which is exactly how the
+sibling database plugin lost its whole settings page once. This renders the panel
+to static markup and asserts the commit box, the changed paths with their stage
+actions, the graph's dots and edges, and the empty and refusal states.
 
 `verify:desktop` runs the built artifacts against the desktop application's own
 runtime — its `@deepseek-ai/dsh-tools` and Schemastery, imported straight out of
@@ -195,5 +218,10 @@ the wrong stream would all pass a parser fixture and fail here.
   merge; `git_diff` with a range shows what the merge brought in.
 - **The panel needs a root.** With no configured root and no registered
   workspace, it asks the deployment to name one.
+- **The graph is a picture, not an editor.** It draws lanes and opens a commit's
+  patch; it cannot cherry-pick, rebase, or drag a branch.
+- **The panel's writes need the current host.** A page that refreshed after an
+  update can outlive the process serving it; a missing route is reported as the
+  restart it needs rather than a mystery.
 - **No blame, no reflog, no submodule management.** Deliberately left out of the
   first version.

@@ -23,7 +23,8 @@ import { load, resolve } from './css-stub.mjs'
 registerHooks({ resolve, load })
 
 const { apply, inject } = await import('../src/client/index.ts')
-const { GIT_TAB_ID, GIT_TAB_KIND, GIT_DIFF_PATH, GIT_REPOS_PATH, GIT_ROOTS_PATH, GIT_STATUS_PATH } = await import('../src/contract.ts')
+const { GIT_TAB_ID, GIT_TAB_KIND, GIT_DIFF_PATH, GIT_LOG_PATH, GIT_REPOS_PATH, GIT_ROOTS_PATH, GIT_STATUS_PATH, GIT_COMMIT_PATH, GIT_STAGE_PATH } = await import('../src/contract.ts')
+const { COMMIT_NEEDS_MESSAGE } = await import('../src/client/panel.ts')
 const { NS, TOOL_NS, en, toolEn, toolZh, zh } = await import('../src/client/locales.ts')
 const { TOOL_ROW_KEYS } = await import('../src/client/card-model.ts')
 const { GitIcon } = await import('../src/client/GitPanel.tsx')
@@ -185,10 +186,33 @@ const SUMMARY = {
   upstream: 'origin/main', ahead: 1, behind: 0, staged: 1, unstaged: 2, untracked: 1, conflicted: 0, dirty: true,
 }
 
+/** The history the graph route answers with: a merge with one parent outside it. */
+const COMMITS = [
+  {
+    hash: 'aaaaaaaaaaaaaaaa', short: 'aaaaaaa', author: 'sumu126', email: 's@example.com',
+    date: '2026-11-03T11:00:00+08:00', timestamp: 1, subject: 'merge a feature', refs: ['HEAD -> main'],
+    parents: ['bbbbbbbbbbbbbbbb', 'cccccccccccccccc'],
+  },
+  {
+    hash: 'bbbbbbbbbbbbbbbb', short: 'bbbbbbb', author: 'sumu126', email: 's@example.com',
+    date: '2026-11-03T10:00:00+08:00', timestamp: 0, subject: 'work on main', refs: [],
+    parents: [],
+  },
+  {
+    hash: 'cccccccccccccccc', short: 'ccccccc', author: 'sumu126', email: 's@example.com',
+    date: '2026-11-03T09:00:00+08:00', timestamp: 0, subject: 'work on the feature', refs: ['feat'],
+    parents: [],
+  },
+]
+
 /** The panel's route answers, keyed by path. */
 function answer(path, query) {
   if (path === GIT_ROOTS_PATH) {
-    return { roots: [{ path: 'C:/ws', title: 'ws', source: 'workspace' }], default: 'C:/ws' }
+    return {
+      roots: [{ path: 'C:/ws', title: 'ws', source: 'workspace' }],
+      default: 'C:/ws',
+      capabilities: { stage: true, commit: true, switch: true },
+    }
   }
   if (path === GIT_REPOS_PATH) {
     return { root: query.root ?? 'C:/ws', repos: [{ ...SUMMARY, path: `${query.root ?? 'C:/ws'}/work` }], truncated: false }
@@ -201,6 +225,9 @@ function answer(path, query) {
         filesTruncated: false,
       },
     }
+  }
+  if (path === GIT_LOG_PATH) {
+    return { repo: SUMMARY, commits: COMMITS }
   }
   if (path === GIT_DIFF_PATH) {
     return {
@@ -221,8 +248,19 @@ globalThis.window = { location: { origin: 'http://127.0.0.1:3099' } }
 globalThis.fetch = async (request, init = {}) => {
   const url = new URL(String(request), 'http://127.0.0.1:3099')
   const query = Object.fromEntries(url.searchParams)
-  calls.push({ path: url.pathname, query, signal: init.signal })
+  const method = init.method ?? 'GET'
+  const sent = typeof init.body === 'string' ? JSON.parse(init.body) : undefined
+  calls.push({ path: url.pathname, query, method, body: sent, signal: init.signal })
   if (failing) return new Response('boom', { status: 500 })
+  if (method === 'POST') {
+    if (url.pathname === GIT_COMMIT_PATH) {
+      return Response.json({ status: { repo: SUMMARY, files: [], filesTruncated: false }, commit: COMMITS[0], files: [] })
+    }
+    if (url.pathname === GIT_STAGE_PATH) {
+      return Response.json({ status: { repo: SUMMARY, files: [], filesTruncated: false } })
+    }
+    return new Response('not stubbed', { status: 404 })
+  }
   const body = answer(url.pathname, query)
   return body === undefined ? new Response('not stubbed', { status: 404 }) : Response.json(body)
 }
@@ -241,16 +279,20 @@ const state = () => face.hooks.gitPanel.getSnapshot()
 assert.equal(state().phase, 'ready')
 assert.equal(state().root, 'C:/ws')
 assert.deepEqual(state().roots.map(root => root.title), ['ws'])
+assert.deepEqual(state().capabilities, { stage: true, commit: true, switch: true }, 'the panel is told what the host allows')
 assert.equal(state().repos.length, 1)
 assert.equal(state().selected, 'C:/ws/work', 'the first repository is selected, so the panel opens on content')
 assert.equal(state().detail.status.repo.name, 'work')
 assert.equal(state().detail.diff.scope, 'working')
-assert.deepEqual(calls.map(call => call.path), [GIT_ROOTS_PATH, GIT_REPOS_PATH, GIT_STATUS_PATH, GIT_DIFF_PATH],
-  'the panel reads the roots, the repositories, then the selection\'s status and diff')
-console.log(`panel: ${String(state().repos.length)} repository read, selected, and described`)
+assert.equal(state().commits.length, 3, 'the graph reads the history as well as the status')
+assert.deepEqual(state().commits[0].parents, ['bbbbbbbbbbbbbbbb', 'cccccccccccccccc'], 'the parents a drawing needs reach the panel')
+assert.deepEqual(calls.map(call => call.path), [GIT_ROOTS_PATH, GIT_REPOS_PATH, GIT_STATUS_PATH, GIT_DIFF_PATH, GIT_LOG_PATH],
+  'the panel reads the roots, the repositories, then the selection\'s status, diff, and history')
+console.log(`panel: ${String(state().repos.length)} repository read, selected, described, and graphed`)
 
 /** The last call to one route. */
 const lastCall = path => [...calls].reverse().find(call => call.path === path)
+assert.equal(lastCall(GIT_LOG_PATH).query.limit, '50', 'the graph opens on the default bound')
 
 face.git.chooseScope('staged')
 await settle()
@@ -273,6 +315,80 @@ await settle()
 assert.ok(calls.length > beforeRefresh)
 assert.equal(calls[beforeRefresh].path, GIT_ROOTS_PATH, 'a refresh re-reads the roots, not only the repositories')
 console.log('panel: another root and a refresh are each read from the host')
+
+// ---- The panel's mutations -------------------------------------------------
+//
+// The commit box and the stage actions are the panel's only writes. They go
+// through the host's guarded routes, so what is asserted here is that a gesture
+// becomes the right request — the guard itself is the host gate's business.
+
+/** The last POST to one route. */
+const lastPost = path => [...calls].reverse().find(call => call.method === 'POST' && call.path === path)
+
+// Staging one path.
+const beforeStage = calls.length
+face.git.stage('alpha.txt')
+await settle()
+const stageCall = calls.slice(beforeStage).find(call => call.method === 'POST')
+assert.ok(stageCall, 'staging a path posts to the host')
+assert.equal(stageCall.path, GIT_STAGE_PATH)
+assert.deepEqual(stageCall.body, { repo: 'C:/other/work', mode: 'stage', paths: ['alpha.txt'] })
+assert.equal(state().busy, null, 'the panel is idle again after the write')
+
+face.git.unstage('alpha.txt')
+await settle()
+assert.equal(lastPost(GIT_STAGE_PATH).body.mode, 'unstage')
+
+face.git.stageAll()
+await settle()
+assert.deepEqual(lastPost(GIT_STAGE_PATH).body, { repo: 'C:/other/work', mode: 'stage', all: true })
+console.log('panel: a path, and everything, are staged through the host')
+
+// The commit box: the draft is posted, and a committed message clears it.
+const beforeCommit = calls.length
+face.git.writeDraft('提交面板里的改动')
+assert.equal(state().draft, '提交面板里的改动', 'the box holds what was typed')
+face.git.commit(false)
+await settle()
+const commitCall = calls.slice(beforeCommit).find(call => call.method === 'POST' && call.path === GIT_COMMIT_PATH)
+assert.ok(commitCall, 'the commit box posts to the host')
+assert.deepEqual(commitCall.body, { repo: 'C:/other/work', message: '提交面板里的改动' })
+assert.equal(state().draft, '', 'a committed message clears the box')
+assert.equal(state().busy, null)
+console.log('panel: the commit box posts the message and clears it')
+
+// An empty message never reaches the host.
+const beforeEmpty = calls.length
+face.git.writeDraft('   ')
+face.git.commit(false)
+await settle()
+assert.equal(calls.slice(beforeEmpty).filter(call => call.method === 'POST').length, 0, 'an empty message is not sent')
+assert.equal(state().actionFailure.message, COMMIT_NEEDS_MESSAGE)
+face.git.writeDraft('')
+assert.equal(state().actionFailure, null, 'typing again clears the refusal')
+console.log('panel: an empty message is refused before it reaches the host')
+
+// Opening a commit reads its patch; closing drops it.
+face.git.openCommit('aaaaaaaaaaaaaaaa')
+await settle()
+const commitDiffCall = lastCall(GIT_DIFF_PATH)
+assert.equal(commitDiffCall.query.scope, 'commit')
+assert.equal(commitDiffCall.query.ref, 'aaaaaaaaaaaaaaaa')
+assert.equal(state().selectedCommit, 'aaaaaaaaaaaaaaaa')
+assert.equal(state().commitDiff.scope, 'commit')
+face.git.closeCommit()
+assert.equal(state().selectedCommit, null)
+assert.equal(state().commitDiff, null)
+console.log('panel: a commit opens its own patch, and closes again')
+
+// "Load more" asks the host for a larger history.
+const beforeMore = calls.length
+face.git.loadMore()
+await settle()
+assert.equal(state().graphLimit, 100)
+const grown = calls.slice(beforeMore).find(call => call.path === GIT_LOG_PATH)
+assert.equal(grown.query.limit, '100', 'load more raises the bound the graph reads')
+console.log('panel: load more reads a longer history')
 
 // A failed read is reported, and the panel stops saying it is loading.
 failing = true
@@ -344,14 +460,22 @@ assert.ok(handoff, 'the bundle announces itself to the module table on load')
 assert.equal(handoff.id, 'dsh-git', 'under the package identity the shell dispatches on')
 assert.equal(typeof handoff.factory, 'function', 'as a factory, which is what the module table stores')
 
+// The shell seeds React itself — the element runtime and the component APIs —
+// so those are the only platform modules this bundle may ask for.
 const jsxRuntime = await import('react/jsx-runtime')
+const react = await import('react')
 const requested = []
 const builtModule = handoff.factory((name) => {
   requested.push(name)
   if (name === 'react/jsx-runtime') return jsxRuntime
+  if (name === 'react') return react
   throw new Error(`the bundle asked for a platform module the shell does not seed: ${name}`)
 })
-assert.deepEqual([...new Set(requested)], ['react/jsx-runtime'], 'the bundle needs only React\'s JSX runtime from the shell')
+assert.deepEqual(
+  [...new Set(requested)].sort(),
+  ['react', 'react/jsx-runtime'],
+  'the bundle needs only React from the shell, and not a harness package the page may not have',
+)
 assert.equal(typeof builtModule.apply, 'function', 'the built module exports apply')
 assert.deepEqual(builtModule.inject, ['slots', 'locale', 'sidebarRightTabs'], 'and the same declared services as the source')
 

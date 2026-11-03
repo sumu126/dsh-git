@@ -47,7 +47,7 @@
     "prepare": "npm run build",
     "prepack": "npm run build",
     "typecheck": "tsc -p tsconfig.types.json",
-    "test": "node --import tsx/esm --test tests/parse.test.ts tests/graph.test.ts tests/file-badge.test.ts",
+    "test": "node --import tsx/esm --test tests/parse.test.ts tests/graph.test.ts tests/file-badge.test.ts tests/diff-view.test.ts",
     "test:live": "node --import tsx/esm --test tests/git-live.test.ts",
     "verify:host": "node --import tsx/esm scripts/verify-host.mjs",
     "verify:client": "node --import tsx/esm scripts/verify-client.mjs",

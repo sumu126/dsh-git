@@ -22,6 +22,7 @@ registerHooks({ resolve, load })
 const { createElement } = await import('react')
 const { renderToStaticMarkup } = await import('react-dom/server')
 const { GitPanel } = await import('../src/client/GitPanel.tsx')
+const { DiffView } = await import('../src/client/DiffTab.tsx')
 const { zh } = await import('../src/client/locales.ts')
 
 /** The translate seat, with `{name}` interpolation. */
@@ -100,9 +101,6 @@ function snapshot(overrides = {}) {
     reposCollapsed: false,
     selectedCommit: null,
     commitDiff: null,
-    commitFile: null,
-    commitFileDiff: null,
-    commitFileLoading: false,
     commitLoading: false,
     ...overrides,
   }
@@ -116,8 +114,15 @@ function render(state) {
   return renderToStaticMarkup(createElement(GitPanel, {
     t: translate,
     useGitPanel: selector => selector(state),
+    // The panel never reads navigation params; it only opens tabs from its rows.
+    useTabInfo: () => ({ tab: { actions: { openTab: () => {} }, navigation: { params: undefined } } }),
     git: NO_ACTIONS,
   }))
+}
+
+/** Render one file's diff, the way its tab draws it. */
+function renderDiff(props) {
+  return renderToStaticMarkup(createElement(DiffView, { t: translate, ...props }))
 }
 
 /** Count one pattern's matches in some markup. */
@@ -179,29 +184,65 @@ const open = render(snapshot({
     files: [{ status: 'M', path: 'src/client/GitPanel.tsx' }, { status: 'A', path: 'scripts/verify-client.mjs' }],
     additions: 2, deletions: 0, patch: '+two\n+new\n', truncated: false,
   },
-  commitFile: 'src/client/GitPanel.tsx',
-  commitFileDiff: {
-    repo: SUMMARY, scope: 'commit', ref: 'aaaaaaaaaaaaaaaa',
-    files: [{ status: 'M', path: 'src/client/GitPanel.tsx' }], additions: 1, deletions: 0, patch: '+alpha\n', truncated: false,
-  },
 }))
 assert.match(open, /GitPanel\.tsx/u, 'an opened commit lists the files it changed')
 assert.match(open, /verify-client\.mjs/u)
 assert.match(open, /TSX/u, 'each row carries its type badge')
 assert.match(open, /src\/client/u, 'and the directory beside the name')
-assert.match(open, /\+alpha/u, 'the chosen path\'s patch is shown')
 // Inline, not appended after the whole history: the files appear before the next
 // commit's subject, which is what makes the expansion belong to its row.
 assert.ok(
   open.indexOf('GitPanel.tsx') < open.indexOf('work on main'),
   'the changed files sit inside the list, under the commit they belong to',
 )
+// The patch is not drawn here: it belongs to the file's own tab.
+assert.ok(!open.includes('line two changed'), 'the panel does not inline a patch')
 
 const mergeCommit = render(snapshot({
   selectedCommit: 'aaaaaaaaaaaaaaaa',
   commitDiff: { repo: SUMMARY, scope: 'commit', files: [], additions: 0, deletions: 0, patch: '', truncated: false },
 }))
 assert.match(mergeCommit, /没有改动路径/u, 'a commit that lists no paths says so')
+
+// ---- The diff tab's picture ----------------------------------------------
+
+const DIFF_PATCH = [
+  'diff --git a/src/client/GitPanel.tsx b/src/client/GitPanel.tsx',
+  'index 1111111..2222222 100644',
+  '--- a/src/client/GitPanel.tsx',
+  '+++ b/src/client/GitPanel.tsx',
+  '@@ -1,3 +1,4 @@',
+  ' export function panel() {',
+  '-  return oldValue',
+  '+  return newValue',
+  '+  // a new line',
+  ' }',
+  '',
+].join('\n')
+
+const diffHtml = renderDiff({
+  path: 'src/client/GitPanel.tsx',
+  additions: 2,
+  deletions: 1,
+  patch: DIFF_PATCH,
+})
+assert.match(diffHtml, /GitPanel\.tsx/u, 'the tab names the file')
+assert.match(diffHtml, /src\/client/u, 'and its directory')
+assert.match(diffHtml, /TSX/u, 'and its type badge')
+assert.match(diffHtml, /\+2/u, 'with the line totals')
+assert.match(diffHtml, /−1/u)
+assert.match(diffHtml, /并排/u, 'side by side is the default layout')
+assert.match(diffHtml, /统一/u, 'and the unified layout is one click away')
+assert.match(diffHtml, /@@ -1,3 \+1,4 @@/u, 'the hunk header is shown')
+assert.match(diffHtml, /return oldValue/u, 'the removed line is there')
+assert.match(diffHtml, /return newValue/u, 'the added line is there')
+assert.equal(count(diffHtml, /class="splitRow"/gu), 4, 'four side-by-side rows: context, change, extra add, context')
+assert.equal(count(diffHtml, /class="cell del"/gu), 1, 'one removed cell')
+assert.equal(count(diffHtml, /class="cell add"/gu), 2, 'two added cells')
+console.log(`render: the diff tab draws ${String(count(diffHtml, /class="splitRow"/gu))} rows side by side`)
+
+const emptyDiff = renderDiff({ path: 'a.txt', additions: 0, deletions: 0, patch: '' })
+assert.match(emptyDiff, /没有改动/u, 'a patch with no hunk says so')
 
 // ---- The repository list folds -------------------------------------------
 

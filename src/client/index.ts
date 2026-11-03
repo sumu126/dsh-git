@@ -24,8 +24,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 // Type-only: pulls the Tool layer's SlotMap merge (the 'tool.call.toolview' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 
-import { GIT_TAB_ID, GIT_TAB_KIND } from '../contract.ts'
+import { GIT_FILE_TAB_ID, GIT_FILE_TAB_KIND, GIT_TAB_ID, GIT_TAB_KIND, type GitDiffTabParams } from '../contract.ts'
 import { GitIcon, GitPanel, GitPanelTitle, type GitPanelFace } from './GitPanel.tsx'
+import { DiffTab, DiffTabTitle } from './DiffTab.tsx'
 import { GitPanelController } from './panel.ts'
 import { NS, TOOL_NS, en, toolEn, toolZh, zh, type GitLocaleKey, type ToolLocaleKey } from './locales.ts'
 import { registerToolRows } from './GitToolRows.tsx'
@@ -36,6 +37,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'panel.git': GitLocaleKey
     /** Copy of the tool-call rows this plugin draws. */
     'tool.git': ToolLocaleKey
+  }
+}
+
+declare module '@deepseek-ai/dsh-client-ui-sidebar-right/client' {
+  interface SidebarRightTabParamsMap {
+    /** The repository, path, and comparison one file-diff tab shows. */
+    'git-file': GitDiffTabParams
   }
 }
 
@@ -101,4 +109,22 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
     name: 'sidebar.right.pane.tab.title', key: GIT_TAB_ID, locale: NS, inject: face,
   }, GitPanelTitle)), 'dsh-git: panel title')
+
+  // One tab per file: a patch needs the width the panel's column does not have,
+  // and `multiple` is what gives each file its own address instead of making every
+  // open reuse one tab.
+  ctx.effect(() => ctx.sidebarRightTabs.register({
+    id: GIT_FILE_TAB_ID,
+    kind: GIT_FILE_TAB_KIND,
+    multiple: true,
+    title: () => t('diffTabTitle'),
+  }), 'dsh-git: file diff type')
+
+  ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
+    name: 'sidebar.right.pane.tab', key: GIT_FILE_TAB_ID, locale: NS,
+  }, DiffTab)), 'dsh-git: file diff body')
+
+  ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
+    name: 'sidebar.right.pane.tab.title', key: GIT_FILE_TAB_ID, locale: NS,
+  }, DiffTabTitle)), 'dsh-git: file diff title')
 }

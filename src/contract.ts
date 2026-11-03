@@ -26,6 +26,24 @@ export const GIT_TAB_ID = 'dsh-git'
 /** Kind the panel is opened by; also its guide card's own id. */
 export const GIT_TAB_KIND = 'git'
 
+/** Identity of the tab type that shows one file's diff. */
+export const GIT_FILE_TAB_ID = 'dsh-git-file'
+
+/** Kind a file diff is opened by; each file gets its own tab. */
+export const GIT_FILE_TAB_KIND = 'git-file'
+
+/** What one file-diff tab is opened with. */
+export interface GitDiffTabParams {
+  /** The repository the file belongs to, by path. */
+  repo: string
+  /** The file's path, relative to the repository root. */
+  path: string
+  /** Which comparison to show. */
+  scope: DiffScope
+  /** The revision for the `commit` and `range` scopes. */
+  ref?: string
+}
+
 /** One repository as the panel's list shows it. */
 export interface RepoSummary {
   /** Absolute worktree (or git directory, for a bare repository) path. */

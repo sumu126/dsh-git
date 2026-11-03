@@ -16,8 +16,11 @@
 import { Fragment, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { Capabilities, CommitSummary, DiffFile, DiffPayload, RepoStatus, RepoSummary } from '../contract.ts'
-import { COMMIT_NEEDS_MESSAGE, type GitPanelActions, type GitPanelSnapshot } from './panel.ts'
+import {
+  GIT_FILE_TAB_KIND, type Capabilities, type CommitSummary, type DiffFile, type DiffPayload, type RepoStatus,
+  type RepoSummary,
+} from '../contract.ts'
+import { COMMIT_NEEDS_MESSAGE, type GitPanelActions, type GitPanelSnapshot, type PanelScope } from './panel.ts'
 import { GRAPH_COLORS, edgePath, layoutGraph } from './graph.ts'
 import { fileBadge, splitPath } from './file-badge.ts'
 import styles from './panel.module.css'
@@ -194,9 +197,16 @@ function CommitBox(
   )
 }
 
-/** One changed path, with the stage actions that apply to it. */
+/** One changed path, with the stage actions that apply to it. Clicking it opens
+ * its diff in a tab of its own. */
 function ChangeRow(
-  { t, file, actions, enabled }: { t: GitPanelProps['t'], file: RepoStatus['files'][number], actions: GitPanelActions, enabled: boolean },
+  { t, file, actions, enabled, onOpen }: {
+    t: GitPanelProps['t']
+    file: RepoStatus['files'][number]
+    actions: GitPanelActions
+    enabled: boolean
+    onOpen: () => void
+  },
 ): ReactNode {
   const staged = file.index !== '.' && file.index !== ' '
   const unstaged = file.kind === 'untracked' || (file.worktree !== '.' && file.worktree !== ' ')
@@ -204,7 +214,19 @@ function ChangeRow(
   const badge = fileBadge(file.path)
   const { directory, name } = splitPath(file.path)
   return (
-    <li className={styles.file} title={file.path}>
+    <li
+      className={styles.file}
+      title={file.path}
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event: KeyboardEvent<HTMLLIElement>) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onOpen()
+        }
+      }}
+    >
       <span className={`${styles.badge} ${styles[`tone-${badge.tone}`] ?? ''}`}>{badge.label}</span>
       <span className={styles.fileName}>{name}</span>
       {directory.length === 0 ? null : <span className={styles.fileDir}>{directory}</span>}
@@ -214,10 +236,30 @@ function ChangeRow(
         ? (
           <span className={styles.fileActions}>
             {unstaged
-              ? <button type="button" className={styles.iconAction} title={t('stage')} aria-label={t('stage')} onClick={() => { actions.stage(file.path) }}>+</button>
+              ? (
+                <button
+                  type="button"
+                  className={styles.iconAction}
+                  title={t('stage')}
+                  aria-label={t('stage')}
+                  onClick={(event) => { event.stopPropagation(); actions.stage(file.path) }}
+                >
+                  +
+                </button>
+              )
               : null}
             {staged
-              ? <button type="button" className={styles.iconAction} title={t('unstage')} aria-label={t('unstage')} onClick={() => { actions.unstage(file.path) }}>−</button>
+              ? (
+                <button
+                  type="button"
+                  className={styles.iconAction}
+                  title={t('unstage')}
+                  aria-label={t('unstage')}
+                  onClick={(event) => { event.stopPropagation(); actions.unstage(file.path) }}
+                >
+                  −
+                </button>
+              )
               : null}
           </span>
         )
@@ -228,11 +270,12 @@ function ChangeRow(
 
 /** The changed paths, and the two "all" actions. */
 function Changes(
-  { t, status, actions, capabilities }: {
+  { t, status, actions, capabilities, onOpen }: {
     t: GitPanelProps['t']
     status: RepoStatus
     actions: GitPanelActions
     capabilities: GitPanelSnapshot['capabilities']
+    onOpen: (path: string) => void
   },
 ): ReactNode {
   const stagedCount = status.repo.staged
@@ -262,6 +305,7 @@ function Changes(
                 file={file}
                 actions={actions}
                 enabled={capabilities.stage}
+                onOpen={() => { onOpen(file.path) }}
               />
             ))}
           </ul>
@@ -272,10 +316,12 @@ function Changes(
   )
 }
 
-/** The diff of the comparison on screen. */
+/** The diff of the comparison on screen. Folded until asked for: a patch is
+ * read in a tab of its own, not in the column it is listed in. */
 function Compared(
   { t, state, actions }: { t: GitPanelProps['t'], state: GitPanelSnapshot, actions: GitPanelActions },
 ): ReactNode {
+  const [open, setOpen] = useState(false)
   const diff = state.detail?.diff ?? null
   return (
     <section className={styles.section}>
@@ -299,13 +345,22 @@ function Compared(
             {t('scopeStaged')}
           </button>
         </span>
+        <button type="button" className={styles.smallAction} onClick={() => { setOpen(!open) }}>
+          {open ? t('collapse') : t('expand')}
+        </button>
       </SectionHead>
-      {diff === null || diff.patch.length === 0
-        ? <p className={styles.notice}>{t('noChanges')}</p>
-        : <pre className={styles.patch}>{diff.patch}</pre>}
-      {diff === null || diff.truncated === false
-        ? null
-        : <p className={styles.footnote}>{t('patchCut', { bytes: String(new TextEncoder().encode(diff.patch).length) })}</p>}
+      {open
+        ? (
+          <>
+            {diff === null || diff.patch.length === 0
+              ? <p className={styles.notice}>{t('noChanges')}</p>
+              : <pre className={styles.patch}>{diff.patch}</pre>}
+            {diff === null || diff.truncated === false
+              ? null
+              : <p className={styles.footnote}>{t('patchCut', { bytes: String(new TextEncoder().encode(diff.patch).length) })}</p>}
+          </>
+        )
+        : null}
     </section>
   )
 }
@@ -319,9 +374,8 @@ const LANE_COLORS = [
 const ROW_HEIGHT = 46
 const LANE_WIDTH = 12
 const LANE_PAD = 9
-/** A changed-file row, the patch box under the list, and the two note rows. */
+/** A changed-file row, and the note row of a commit with none. */
 const FILE_ROW = 24
-const PATCH_BOX = 240
 const NOTE_ROW = 32
 
 /** The refs a commit carries, as chips: the current branch first. */
@@ -357,7 +411,7 @@ function shortDate(date: string): string {
 
 /** One changed path of an open commit: type badge, name, directory, status. */
 function CommitFileRow(
-  { t, file, active, onOpen }: { t: GitPanelProps['t'], file: DiffFile, active: boolean, onOpen: () => void },
+  { t, file, onOpen }: { t: GitPanelProps['t'], file: DiffFile, onOpen: () => void },
 ): ReactNode {
   const badge = fileBadge(file.path)
   const { directory, name } = splitPath(file.path)
@@ -367,7 +421,7 @@ function CommitFileRow(
     <li>
       <button
         type="button"
-        className={active ? `${styles.commitFile} ${styles.commitFileActive}` : styles.commitFile}
+        className={styles.commitFile}
         onClick={onOpen}
         title={title}
         aria-label={t('showFile', { path: file.path })}
@@ -392,7 +446,12 @@ function CommitFileRow(
  * measured: the lane's offsets and the SVG have to agree before anything renders.
  */
 function Graph(
-  { t, state, actions }: { t: GitPanelProps['t'], state: GitPanelSnapshot, actions: GitPanelActions },
+  { t, state, actions, onOpenFile }: {
+    t: GitPanelProps['t']
+    state: GitPanelSnapshot
+    actions: GitPanelActions
+    onOpenFile: (path: string, scope: PanelScope | 'commit', ref?: string) => void
+  },
 ): ReactNode {
   const layout = layoutGraph(state.commits.map(commit => ({ hash: commit.hash, parents: commit.parents })))
   const lanes = Math.max(1, Math.min(layout.laneCount, 6))
@@ -402,13 +461,12 @@ function Graph(
   const openIndex = open === null ? -1 : state.commits.findIndex(commit => commit.hash === open)
   const files = state.commitDiff?.files ?? []
   const loading = state.commitLoading || state.commitDiff === null
-  // What the open commit inserts below its row: the file list, plus the patch box
-  // once one file is shown.
+  // What the open commit inserts below its row: its changed paths.
   const expansion = openIndex < 0
     ? 0
     : loading || files.length === 0
       ? NOTE_ROW
-      : files.length * FILE_ROW + (state.commitFile === null ? 0 : PATCH_BOX)
+      : files.length * FILE_ROW
   const y = (row: number): number =>
     row * ROW_HEIGHT + ROW_HEIGHT / 2 + (openIndex >= 0 && row > openIndex ? expansion : 0)
   const total = state.commits.length
@@ -487,30 +545,16 @@ function Graph(
                           : files.length === 0
                             ? <p className={styles.expansionNote}>{t('noCommitFiles')}</p>
                             : (
-                              <>
-                                <ul className={styles.commitFiles}>
-                                  {files.map(file => (
-                                    <CommitFileRow
-                                      key={`${file.status}:${file.path}`}
-                                      t={t}
-                                      file={file}
-                                      active={file.path === state.commitFile}
-                                      onOpen={() => { actions.openCommitFile(file.path) }}
-                                    />
-                                  ))}
-                                </ul>
-                                {state.commitFile === null
-                                  ? null
-                                  : (
-                                    <div className={styles.commitPatch}>
-                                      {state.commitFileLoading
-                                        ? <p className={styles.expansionNote}>{t('loading')}</p>
-                                        : state.commitFileDiff === null || state.commitFileDiff.patch.length === 0
-                                          ? <p className={styles.expansionNote}>{t('noChanges')}</p>
-                                          : <pre className={styles.patch}>{state.commitFileDiff.patch}</pre>}
-                                    </div>
-                                  )}
-                              </>
+                              <ul className={styles.commitFiles}>
+                                {files.map(file => (
+                                  <CommitFileRow
+                                    key={`${file.status}:${file.path}`}
+                                    t={t}
+                                    file={file}
+                                    onOpen={() => { onOpenFile(file.path, 'commit', open ?? undefined) }}
+                                  />
+                                ))}
+                              </ul>
                             )}
                       </li>
                     )}
@@ -537,11 +581,26 @@ function Graph(
  * @returns the repository picker, the commit box, the changes, the diff, and the graph.
  */
 export function GitPanel(props: GitPanelProps): ReactNode {
-  const { t, useGitPanel, git } = props
+  const { t, useGitPanel, git, useTabInfo } = props
   const state = useGitPanel(snapshot => snapshot)
+  const { tab } = useTabInfo()
   const selected = state.repos.find(repo => repo.path === state.selected)
   const status = state.detail?.status ?? null
   const capabilities = state.capabilities ?? NO_CAPABILITIES
+
+  /**
+   * Open one file's diff in its own tab.
+   *
+   * A patch does not fit the column its file is listed in, so the list stays
+   * where the reader is and the patch opens beside it, at whatever width the
+   * panel is dragged to.
+   */
+  const openDiff = (path: string, scope: PanelScope | 'commit', ref?: string): void => {
+    if (state.selected === null) return
+    tab.actions.openTab(GIT_FILE_TAB_KIND, {
+      params: { repo: state.selected, path, scope, ...ref === undefined ? {} : { ref } },
+    })
+  }
 
   return (
     <div className={styles.panel}>
@@ -632,9 +691,19 @@ export function GitPanel(props: GitPanelProps): ReactNode {
                   : null}
                 <CommitBox t={t} state={state} actions={git} />
                 <div className={styles.scroll}>
-                  {status === null ? null : <Changes t={t} status={status} actions={git} capabilities={capabilities} />}
+                  {status === null
+                    ? null
+                    : (
+                      <Changes
+                        t={t}
+                        status={status}
+                        actions={git}
+                        capabilities={capabilities}
+                        onOpen={path => openDiff(path, state.scope)}
+                      />
+                    )}
                   <Compared t={t} state={state} actions={git} />
-                  <Graph t={t} state={state} actions={git} />
+                  <Graph t={t} state={state} actions={git} onOpenFile={openDiff} />
                 </div>
               </>
             )}

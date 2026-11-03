@@ -23,7 +23,7 @@ import { load, resolve } from './css-stub.mjs'
 registerHooks({ resolve, load })
 
 const { apply, inject } = await import('../src/client/index.ts')
-const { GIT_TAB_ID, GIT_TAB_KIND, GIT_DIFF_PATH, GIT_LOG_PATH, GIT_REPOS_PATH, GIT_ROOTS_PATH, GIT_STATUS_PATH, GIT_COMMIT_PATH, GIT_STAGE_PATH } = await import('../src/contract.ts')
+const { GIT_TAB_ID, GIT_FILE_TAB_ID, GIT_TAB_KIND, GIT_DIFF_PATH, GIT_LOG_PATH, GIT_REPOS_PATH, GIT_ROOTS_PATH, GIT_STATUS_PATH, GIT_COMMIT_PATH, GIT_STAGE_PATH } = await import('../src/contract.ts')
 const { COMMIT_NEEDS_MESSAGE } = await import('../src/client/panel.ts')
 const { NS, TOOL_NS, en, toolEn, toolZh, zh } = await import('../src/client/locales.ts')
 const { TOOL_ROW_KEYS } = await import('../src/client/card-model.ts')
@@ -142,17 +142,27 @@ assert.notEqual(zh.guideHint, en.guideHint, 'the two languages are not the same 
 console.log(`dictionaries: ${String(Object.keys(zh).length)} panel keys and ${String(Object.keys(toolZh).length)} tool-row keys, both languages`)
 
 const seats = () => [...harness.seats.values()]
-const body = seats().find(seat => seat.options.name === 'sidebar.right.pane.tab')
-const title = seats().find(seat => seat.options.name === 'sidebar.right.pane.tab.title')
+const bodies = seats().filter(seat => seat.options.name === 'sidebar.right.pane.tab')
+const titles = seats().filter(seat => seat.options.name === 'sidebar.right.pane.tab.title')
+const body = bodies.find(seat => seat.options.key === GIT_TAB_ID)
+const title = titles.find(seat => seat.options.key === GIT_TAB_ID)
 assert.ok(body, 'the panel claims a right-sidebar tab body')
 assert.ok(title, 'and a chip title seat, so an open chip follows a language switch')
-assert.equal(body.options.key, GIT_TAB_ID)
-assert.equal(title.options.key, GIT_TAB_ID)
 assert.equal(body.options.locale, NS)
 assert.equal(typeof body.component, 'function', 'the body is a component')
 assert.equal(typeof title.component, 'function')
 
-assert.deepEqual([...harness.tabTypes.keys()], [GIT_TAB_ID], 'one tab type, under the identity the shell dispatches on')
+const fileBody = bodies.find(seat => seat.options.key === GIT_FILE_TAB_ID)
+const fileTitle = titles.find(seat => seat.options.key === GIT_FILE_TAB_ID)
+assert.ok(fileBody, 'the file diff claims a tab body of its own')
+assert.ok(fileTitle, 'and its own chip title, so the chip can name the file')
+assert.equal(fileBody.options.locale, NS)
+
+assert.deepEqual(
+  [...harness.tabTypes.keys()].sort(),
+  [GIT_TAB_ID, GIT_FILE_TAB_ID].sort(),
+  'two tab types: the panel, and one file diff',
+)
 const tabType = harness.tabTypes.get(GIT_TAB_ID)
 assert.equal(tabType.kind, GIT_TAB_KIND)
 assert.equal(tabType.title(), zh.panelTitle, 'the chip label is translated at use')
@@ -162,13 +172,18 @@ assert.equal(tabType.guide[0].title(), zh.panelTitle)
 assert.equal(tabType.guide[0].description(), zh.guideHint)
 assert.equal(tabType.guide[0].icon, GitIcon, 'the card carries this plugin\'s own glyph')
 
+const fileType = harness.tabTypes.get(GIT_FILE_TAB_ID)
+assert.equal(fileType.kind, 'git-file')
+assert.equal(fileType.multiple, true, 'each file gets its own tab')
+assert.equal(fileType.title(), zh.diffTabTitle)
+
 const rows = seats().filter(seat => seat.options.name === 'tool.call.toolview')
 assert.deepEqual(rows.map(seat => seat.options.key).sort(), [...TOOL_ROW_KEYS].sort(), 'a row is claimed for exactly this plugin\'s tools')
 for (const row of rows) {
   assert.equal(row.options.locale, TOOL_NS, `the "${String(row.options.key)}" row resolves its copy from the tool namespace`)
   assert.equal(typeof row.component, 'function', `the "${String(row.options.key)}" row is a component`)
 }
-console.log(`registered: one "${String(tabType.kind)}" page type with a guide card, and ${String(rows.length)} tool rows`)
+console.log(`registered: a "${String(tabType.kind)}" page with a guide card, a per-file "${String(fileType.kind)}" tab, and ${String(rows.length)} tool rows`)
 
 // The glyph is drawn here rather than imported from the shell: the shell renamed
 // its icon set between generations, and a missing export renders nothing at all.
@@ -296,7 +311,7 @@ assert.equal(typeof face.hooks.gitPanel.getSnapshot, 'function', 'the face carri
 assert.equal(typeof face.hooks.gitPanel.subscribe, 'function')
 assert.equal(typeof face.hooks.gitPanel.set, 'function')
 assert.equal(typeof face.hooks.gitPanel.update, 'function')
-for (const action of ['refresh', 'chooseRoot', 'select', 'toggleRepos', 'chooseScope', 'openCommitFile']) {
+for (const action of ['refresh', 'chooseRoot', 'select', 'toggleRepos', 'chooseScope']) {
   assert.equal(typeof face.git[action], 'function', `the panel exposes the "${action}" gesture`)
 }
 await settle()
@@ -394,28 +409,19 @@ face.git.writeDraft('')
 assert.equal(state().actionFailure, null, 'typing again clears the refusal')
 console.log('panel: an empty message is refused before it reaches the host')
 
-// Opening a commit reads its changed paths, then the first path's patch —
-// the two-step a log view uses. Selecting another path re-reads one file.
+// Opening a commit reads its changed paths. The patch of a path is not read
+// here: clicking a path opens it in its own tab, which reads it for itself.
 const beforeOpen = calls.length
 face.git.openCommit('aaaaaaaaaaaaaaaa')
 await settle()
 const openCalls = calls.slice(beforeOpen).filter(call => call.path === GIT_DIFF_PATH)
-assert.equal(openCalls.length, 2, 'a commit read is the paths, then the first path\'s patch')
+assert.equal(openCalls.length, 1, 'a commit read is one call: its changed paths')
 assert.equal(openCalls[0].query.scope, 'commit')
 assert.equal(openCalls[0].query.ref, 'aaaaaaaaaaaaaaaa')
-assert.equal(openCalls[0].query.path, undefined, 'the first call is the whole commit')
-assert.equal(openCalls[1].query.path, 'alpha.txt', 'and the second narrows it to the first changed path')
+assert.equal(openCalls[0].query.path, undefined, 'the whole commit, not one path')
 assert.equal(state().selectedCommit, 'aaaaaaaaaaaaaaaa')
 assert.equal(state().commitDiff.files.length, 2, 'the commit lists its changed paths')
-assert.equal(state().commitFile, 'alpha.txt', 'the first path opens with the commit')
-assert.match(state().commitFileDiff.patch, /alpha\.txt/u)
-
-face.git.openCommitFile('brand new.txt')
-await settle()
-assert.equal(state().commitFile, 'brand new.txt')
-assert.equal(lastCall(GIT_DIFF_PATH).query.path, 'brand new.txt')
-assert.match(state().commitFileDiff.patch, /brand new\.txt/u)
-console.log('panel: a commit lists its changed paths, and each path shows its own patch')
+console.log('panel: a commit lists its changed paths, and the patch is left to the file tab')
 
 face.git.closeCommit()
 assert.equal(state().selectedCommit, null)
@@ -569,7 +575,7 @@ const built = makeContext()
 builtModule.apply(built.ctx)
 const builtBody = [...built.seats.values()].find(seat => seat.options.name === 'sidebar.right.pane.tab')
 assert.ok(builtBody, 'the built bundle registers the panel body')
-assert.deepEqual([...built.tabTypes.keys()], [GIT_TAB_ID], 'and the tab type')
+assert.deepEqual([...built.tabTypes.keys()].sort(), [GIT_TAB_ID, GIT_FILE_TAB_ID].sort(), 'and the tab types')
 assert.equal([...built.seats.values()].filter(seat => seat.options.name === 'tool.call.toolview').length, TOOL_ROW_KEYS.length,
   'and one row per git tool')
 const builtFace = builtBody.options.inject()

@@ -1,0 +1,104 @@
+/* Tool-call rows: readable at a glance, and never taller than the turn needs. */
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary, currentColor);
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.title {
+  font-weight: 600;
+}
+
+.muted {
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40ch;
+}
+
+.counts {
+  color: var(--dsw-alias-label-secondary, currentColor);
+  white-space: nowrap;
+}
+
+.count {
+  margin-left: auto;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  white-space: nowrap;
+}
+
+.badge {
+  padding: 0 6px;
+  border: 0.5px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.35));
+  border-radius: 999px;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  font-size: 11px;
+}
+
+.note {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.letters {
+  flex: 0 0 auto;
+  min-width: 2ch;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+}
+
+.name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+}
+
+.plain {
+  margin: 0;
+  padding: 4px 0;
+  overflow: auto;
+  max-height: 200px;
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+  font-size: 11px;
+  white-space: pre-wrap;
+  color: var(--dsw-alias-label-secondary, currentColor);
+}

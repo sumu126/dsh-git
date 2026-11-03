@@ -1,0 +1,26 @@
+# The layer this bundle contributes: the plugin itself.
+#
+# Nothing here is database-, dialect-, or repository-specific: the plugin starts
+# with no root of its own, so a deployment points it at the directory it manages
+# by editing this row, and a session with no configured root scans its own
+# directory. The three switches below decide whether the mutating tools exist at
+# all — a deployment that wants a read-only history viewer turns them off, and
+# the model is then offered no staging, committing, or switching tool.
+- insert:
+    - id: dsh-git
+      name: 'dsh-git'
+      config:
+        # Empty means "ask the session": a tool call scans the directory the
+        # session works in, and the panel offers the roots it can discover.
+        root: ''
+        gitCommand: git
+        timeoutMs: 30000
+        maxOutputBytes: 262144
+        maxPatchBytes: 65536
+        logLimit: 20
+        maxRepos: 100
+        maxDepth: 4
+        maxFiles: 200
+        allowStage: true
+        allowCommit: true
+        allowSwitch: true

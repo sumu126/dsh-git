@@ -1,0 +1,240 @@
+/**
+ * The wire contract between the two halves of this plugin.
+ *
+ * The host writes these values and the browser reads them; both import this
+ * module, so a field renamed here is a compile error on both sides rather than a
+ * panel that quietly shows nothing. Nothing in this file touches Node or the DOM.
+ *
+ * @module dsh-git/src/contract
+ */
+
+/** Authenticated route that lists the repositories under a root. */
+export const GIT_REPOS_PATH = '/api/dsh-git/repos'
+
+/** Authenticated route that lists the roots the panel may browse. */
+export const GIT_ROOTS_PATH = '/api/dsh-git/roots'
+
+/** Authenticated route that reads one repository's status. */
+export const GIT_STATUS_PATH = '/api/dsh-git/status'
+
+/** Authenticated route that reads one repository's diff. */
+export const GIT_DIFF_PATH = '/api/dsh-git/diff'
+
+/** Identity of the right-sidebar tab type this plugin contributes. */
+export const GIT_TAB_ID = 'dsh-git'
+
+/** Kind the panel is opened by; also its guide card's own id. */
+export const GIT_TAB_KIND = 'git'
+
+/** One repository as the panel's list shows it. */
+export interface RepoSummary {
+  /** Absolute worktree (or git directory, for a bare repository) path. */
+  path: string
+  /** The directory's own name, for display. */
+  name: string
+  /** Current branch, or null on a detached HEAD. */
+  branch: string | null
+  /** True when HEAD is detached. */
+  detached: boolean
+  /** Abbreviated HEAD commit, or null before the first commit. */
+  head: string | null
+  /** Upstream branch name, when one is configured. */
+  upstream: string | null
+  /** Commits the upstream does not have. */
+  ahead: number
+  /** Commits the local branch does not have. */
+  behind: number
+  /** Files with a staged change. */
+  staged: number
+  /** Files with an unstaged change. */
+  unstaged: number
+  /** Untracked files. */
+  untracked: number
+  /** Files with an unresolved merge conflict. */
+  conflicted: number
+  /** True when any of the four counts above is non-zero. */
+  dirty: boolean
+}
+
+/** One changed path in a working tree. */
+export interface StatusFile {
+  /** Path relative to the repository root. */
+  path: string
+  /** Previous path, for a rename or a copy. */
+  origPath?: string
+  /** Index status letter: `A`, `M`, `D`, `R`, `C`, `U`, or `.` for unchanged. */
+  index: string
+  /** Worktree status letter, with the same alphabet. */
+  worktree: string
+  /** What kind of entry this is, for the panel's grouping. */
+  kind: 'changed' | 'renamed' | 'copied' | 'unmerged' | 'untracked' | 'ignored'
+}
+
+/** One repository's status. */
+export interface RepoStatus {
+  /** The repository this status belongs to. */
+  repo: RepoSummary
+  /** Changed paths, in the order git reported them. */
+  files: StatusFile[]
+  /** True when the file list was cut at the deployment's bound. */
+  filesTruncated: boolean
+}
+
+/** One commit. */
+export interface CommitSummary {
+  /** Full object name. */
+  hash: string
+  /** Abbreviated object name. */
+  short: string
+  /** Author name. */
+  author: string
+  /** Author email. */
+  email: string
+  /** Author date, ISO 8601 with the author's offset. */
+  date: string
+  /** Author date, seconds since the epoch. */
+  timestamp: number
+  /** Subject line. */
+  subject: string
+  /** Ref names pointing at this commit, as `%(decorate)` prints them. */
+  refs: string[]
+  /** Parent object names, so a merge is visible as one. */
+  parents: string[]
+}
+
+/** One branch, local or remote-tracking. */
+export interface BranchSummary {
+  /** Short name, such as `main` or `origin/main`. */
+  name: string
+  /** True for a local branch. */
+  local: boolean
+  /** True for the branch HEAD points at. */
+  current: boolean
+  /** Short name of the upstream branch, when one is configured. */
+  upstream: string | null
+  /** Commits the upstream does not have. */
+  ahead: number
+  /** Commits the branch does not have. */
+  behind: number
+  /** The upstream's state as git words it: tracked, gone, or untracked. */
+  track: 'tracked' | 'gone' | 'untracked'
+  /** Tip commit's abbreviated object name. */
+  sha: string
+  /** Committer date, ISO 8601. */
+  date: string
+  /** Tip commit's subject. */
+  subject: string
+}
+
+/** One configured remote. */
+export interface RemoteSummary {
+  /** The remote's name. */
+  name: string
+  /** Fetch URL. */
+  fetch: string
+  /** Push URL. */
+  push: string
+}
+
+/** One changed path in a diff. */
+export interface DiffFile {
+  /** Status letter as `--name-status` prints it: `A`, `M`, `D`, `R100`, or `U`. */
+  status: string
+  /** Path after the change. */
+  path: string
+  /** Path before the change, for a rename or a copy. */
+  origPath?: string
+}
+
+/** The scope one diff covers. */
+export type DiffScope = 'working' | 'staged' | 'commit' | 'range'
+
+/** One diff, as a tool call and the panel both read it. */
+export interface DiffPayload {
+  /** The repository the diff came from. */
+  repo: RepoSummary
+  /** Which comparison this is. */
+  scope: DiffScope
+  /** The revision or range the diff compares, when the scope names one. */
+  ref?: string
+  /** Changed paths. */
+  files: DiffFile[]
+  /** Line totals over the whole diff, as `--shortstat` counts them. */
+  additions: number
+  /** Lines removed over the whole diff. */
+  deletions: number
+  /** The unified patch itself, bounded by the deployment's byte cap. */
+  patch: string
+  /** True when the patch was cut at the byte cap. */
+  truncated: boolean
+  /** Why there is nothing to show, when a refusal is a value rather than an error. */
+  message?: string
+}
+
+/** One root the panel may browse for repositories. */
+export interface RepoRoot {
+  /** Absolute directory path. */
+  path: string
+  /** A name to show beside it. */
+  title: string
+  /** Where this root came from. */
+  source: 'config' | 'workspace' | 'session' | 'process'
+}
+
+/** The payload `GIT_ROOTS_PATH` answers with. */
+export interface RootsPayload {
+  /** Every root the panel may pick. */
+  roots: RepoRoot[]
+  /** The root the host would use when a request names none. */
+  default: string
+}
+
+/** The payload `GIT_REPOS_PATH` answers with. */
+export interface ReposPayload {
+  /** The root that was scanned. */
+  root: string
+  /** Repositories found, with their status. */
+  repos: RepoSummary[]
+  /** True when the scan stopped at the repository bound. */
+  truncated: boolean
+  /** Why the list is empty, when that is a refusal rather than an empty tree. */
+  message?: string
+}
+
+/** The payload `GIT_STATUS_PATH` answers with. */
+export interface StatusPayload {
+  /** The status, or no repository when the read failed. */
+  status?: RepoStatus
+  /** Why the read failed, when it did. */
+  message?: string
+}
+
+/** The payload `GIT_DIFF_PATH` answers with. */
+export interface DiffAnswer {
+  /** The diff, or none when the read failed. */
+  diff?: DiffPayload
+  /** Why the read failed, when it did. */
+  message?: string
+}
+
+/** What one repository is called and where it lives. */
+export interface RepoIdentity {
+  /** Absolute worktree path, or the git directory for a bare repository. */
+  worktree: string
+  /** Absolute git directory. */
+  gitDir: string
+  /** True for a bare repository, which has no worktree. */
+  bare: boolean
+  /** The directory's own name. */
+  name: string
+}
+
+/** Limits one command runs under. */
+export interface GitLimits {
+  /** The git executable to run. */
+  command: string
+  /** Milliseconds one command may take before it is killed. */
+  timeoutMs: number
+  /** Bytes of one stream that are kept; the rest is dropped and reported. */
+  maxOutputBytes: number
+}

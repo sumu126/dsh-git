@@ -1,0 +1,291 @@
+/*
+ * The Git panel's layout.
+ *
+ * Colours come from the shell's own aliases, each with a fallback, so the panel
+ * inherits the active theme instead of carrying a palette that would be wrong in
+ * one of them.
+ */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  color: var(--dsw-alias-label-primary, currentColor);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.25));
+}
+
+.label {
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  flex: 0 0 auto;
+}
+
+.picker {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 4px;
+  color: inherit;
+  background: var(--dsw-alias-bg-layer-2, transparent);
+  border: 0.5px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.3));
+  border-radius: 6px;
+  font: inherit;
+}
+
+.rootPath {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  color: var(--dsw-alias-label-secondary, currentColor);
+}
+
+.action {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  color: inherit;
+  background: transparent;
+  border: 0.5px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.3));
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.action:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.12));
+}
+
+.action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.notice {
+  margin: 0;
+  padding: 10px;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+}
+
+.failure {
+  margin: 0;
+  padding: 10px;
+  color: var(--dsw-alias-state-error-primary, #d33);
+}
+
+.footnote {
+  margin: 0;
+  padding: 4px 10px 8px;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  font-size: 11px;
+}
+
+.repos {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 40%;
+  overflow: auto;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.25));
+}
+
+.repo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'name meta' 'counts counts';
+  gap: 1px 8px;
+  width: 100%;
+  padding: 6px 8px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.repo:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.12));
+}
+
+.repoActive {
+  background: var(--dsw-alias-bg-layer-3, rgba(127, 127, 127, 0.16));
+}
+
+.repoName {
+  grid-area: name;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.repoMeta {
+  grid-area: meta;
+  display: flex;
+  gap: 6px;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  white-space: nowrap;
+}
+
+.branch {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.position {
+  color: var(--dsw-alias-brand-primary, currentColor);
+}
+
+.counts {
+  grid-area: counts;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+}
+
+.dirty {
+  color: var(--dsw-alias-state-success-primary, currentColor);
+}
+
+.detailHead {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 10px 4px;
+}
+
+.detailName {
+  font-weight: 600;
+}
+
+.detailBranch {
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.section {
+  border-top: 0.5px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.2));
+}
+
+.sectionHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  position: sticky;
+  top: 0;
+  background: inherit;
+}
+
+.sectionTitle {
+  font-weight: 600;
+}
+
+.sectionMeta {
+  margin-left: auto;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  white-space: nowrap;
+}
+
+.scopes {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.scope,
+.scopeActive {
+  padding: 1px 7px;
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  background: transparent;
+  border: 0.5px solid transparent;
+  border-radius: 999px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.scopeActive {
+  color: var(--dsw-alias-label-primary, currentColor);
+  border-color: var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.35));
+  background: var(--dsw-alias-bg-layer-2, rgba(127, 127, 127, 0.12));
+}
+
+.files {
+  margin: 0;
+  padding: 0 10px 8px;
+  list-style: none;
+}
+
+.file {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 1px 0;
+  min-width: 0;
+}
+
+.letters {
+  flex: 0 0 auto;
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+  color: var(--dsw-alias-label-tertiary, currentColor);
+}
+
+.letters[data-kind='untracked'] {
+  color: var(--dsw-alias-state-success-primary, currentColor);
+}
+
+.letters[data-kind='unmerged'] {
+  color: var(--dsw-alias-state-error-primary, #d33);
+}
+
+.filePath {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+}
+
+.origPath {
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+}
+
+.patch {
+  margin: 0;
+  padding: 8px 10px 12px;
+  overflow: auto;
+  max-height: 55vh;
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre;
+  color: var(--dsw-alias-label-secondary, currentColor);
+}

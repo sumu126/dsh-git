@@ -438,14 +438,41 @@ function Graph(
         ? null
         : (
           <div className={styles.commitDetail}>
-            <SectionHead title={t('commitDetail')} meta={openCommit.short}>
+            <SectionHead title={t('commitDetail')} meta={`${openCommit.short} · ${openCommit.author}`}>
               <button type="button" className={styles.smallAction} onClick={() => { actions.closeCommit() }}>{t('closeCommit')}</button>
             </SectionHead>
             {state.commitLoading
               ? <p className={styles.notice}>{t('loading')}</p>
-              : state.commitDiff === null || state.commitDiff.patch.length === 0
-                ? <p className={styles.notice}>{t('noChanges')}</p>
-                : <pre className={styles.patch}>{state.commitDiff.patch}</pre>}
+              : null}
+            {state.commitLoading || state.commitDiff === null ? null : (
+              state.commitDiff.files.length === 0
+                ? <p className={styles.notice}>{t('noCommitFiles')}</p>
+                : (
+                  <ul className={styles.files}>
+                    {state.commitDiff.files.map(file => (
+                      <li key={`${file.status}:${file.path}`}>
+                        <button
+                          type="button"
+                          className={file.path === state.commitFile ? `${styles.commitFile} ${styles.commitFileActive}` : styles.commitFile}
+                          onClick={() => { actions.openCommitFile(file.path) }}
+                          title={t('showFile', { path: file.path })}
+                        >
+                          <span className={styles.letters}>{file.status}</span>
+                          <span className={styles.filePath}>{file.path}</span>
+                          {file.origPath === undefined ? null : <span className={styles.origPath}>← {file.origPath}</span>}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )
+            )}
+            {state.commitFile === null
+              ? null
+              : state.commitFileLoading
+                ? <p className={styles.notice}>{t('loading')}</p>
+                : state.commitFileDiff === null || state.commitFileDiff.patch.length === 0
+                  ? <p className={styles.notice}>{t('noChanges')}</p>
+                  : <pre className={styles.patch}>{state.commitFileDiff.patch}</pre>}
           </div>
         )}
     </section>
@@ -505,18 +532,33 @@ export function GitPanel(props: GitPanelProps): ReactNode {
             {state.repos.length === 0
               ? null
               : (
-                <ul className={styles.repos}>
-                  {state.repos.map(repo => (
-                    <li key={repo.path}>
-                      <RepoRow
-                        t={t}
-                        repo={repo}
-                        selected={repo.path === state.selected}
-                        onSelect={() => { git.select(repo.path) }}
-                      />
-                    </li>
-                  ))}
-                </ul>
+                <section className={styles.repoSection}>
+                  <SectionHead
+                    title={t('repositories')}
+                    meta={state.reposCollapsed ? undefined : String(state.repos.length)}
+                  >
+                    <button
+                      type="button"
+                      className={styles.smallAction}
+                      onClick={() => { git.toggleRepos() }}
+                      title={state.reposCollapsed ? t('expand') : t('collapse')}
+                    >
+                      {state.reposCollapsed ? t('expand') : t('collapse')}
+                    </button>
+                  </SectionHead>
+                  <ul className={styles.repos}>
+                    {(state.reposCollapsed ? (selected === undefined ? [] : [selected]) : state.repos).map(repo => (
+                      <li key={repo.path}>
+                        <RepoRow
+                          t={t}
+                          repo={repo}
+                          selected={repo.path === state.selected}
+                          onSelect={() => { git.select(repo.path) }}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               )}
             {state.truncated ? <p className={styles.footnote}>{t('cut')}</p> : null}
             {state.repos.length > 0 && state.selected === null

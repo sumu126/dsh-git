@@ -230,9 +230,30 @@ function answer(path, query) {
     return { repo: SUMMARY, commits: COMMITS }
   }
   if (path === GIT_DIFF_PATH) {
+    const scope = query.scope ?? 'working'
+    // A commit read is two calls in the real host too: the commit's changed
+    // paths, then one path's patch.
+    if (scope === 'commit' && query.path === undefined) {
+      return {
+        diff: {
+          repo: SUMMARY, scope, ref: query.ref,
+          files: [{ status: 'M', path: 'alpha.txt' }, { status: 'A', path: 'brand new.txt' }],
+          additions: 3, deletions: 0, patch: '+two\n+new\n', truncated: false,
+        },
+      }
+    }
+    if (scope === 'commit') {
+      return {
+        diff: {
+          repo: SUMMARY, scope, ref: query.ref,
+          files: [{ status: 'M', path: query.path }],
+          additions: 1, deletions: 0, patch: `+${query.path}\n`, truncated: false,
+        },
+      }
+    }
     return {
       diff: {
-        repo: SUMMARY, scope: query.scope ?? 'working', files: [{ status: 'M', path: 'alpha.txt' }],
+        repo: SUMMARY, scope, files: [{ status: 'M', path: 'alpha.txt' }],
         additions: 1, deletions: 0, patch: '+two\n', truncated: false,
       },
     }
@@ -275,7 +296,7 @@ assert.equal(typeof face.hooks.gitPanel.getSnapshot, 'function', 'the face carri
 assert.equal(typeof face.hooks.gitPanel.subscribe, 'function')
 assert.equal(typeof face.hooks.gitPanel.set, 'function')
 assert.equal(typeof face.hooks.gitPanel.update, 'function')
-for (const action of ['refresh', 'chooseRoot', 'select', 'chooseScope']) {
+for (const action of ['refresh', 'chooseRoot', 'select', 'toggleRepos', 'chooseScope', 'openCommitFile']) {
   assert.equal(typeof face.git[action], 'function', `the panel exposes the "${action}" gesture`)
 }
 await settle()
@@ -373,18 +394,42 @@ face.git.writeDraft('')
 assert.equal(state().actionFailure, null, 'typing again clears the refusal')
 console.log('panel: an empty message is refused before it reaches the host')
 
-// Opening a commit reads its patch; closing drops it.
+// Opening a commit reads its changed paths, then the first path's patch —
+// the two-step a log view uses. Selecting another path re-reads one file.
+const beforeOpen = calls.length
 face.git.openCommit('aaaaaaaaaaaaaaaa')
 await settle()
-const commitDiffCall = lastCall(GIT_DIFF_PATH)
-assert.equal(commitDiffCall.query.scope, 'commit')
-assert.equal(commitDiffCall.query.ref, 'aaaaaaaaaaaaaaaa')
+const openCalls = calls.slice(beforeOpen).filter(call => call.path === GIT_DIFF_PATH)
+assert.equal(openCalls.length, 2, 'a commit read is the paths, then the first path\'s patch')
+assert.equal(openCalls[0].query.scope, 'commit')
+assert.equal(openCalls[0].query.ref, 'aaaaaaaaaaaaaaaa')
+assert.equal(openCalls[0].query.path, undefined, 'the first call is the whole commit')
+assert.equal(openCalls[1].query.path, 'alpha.txt', 'and the second narrows it to the first changed path')
 assert.equal(state().selectedCommit, 'aaaaaaaaaaaaaaaa')
-assert.equal(state().commitDiff.scope, 'commit')
+assert.equal(state().commitDiff.files.length, 2, 'the commit lists its changed paths')
+assert.equal(state().commitFile, 'alpha.txt', 'the first path opens with the commit')
+assert.match(state().commitFileDiff.patch, /alpha\.txt/u)
+
+face.git.openCommitFile('brand new.txt')
+await settle()
+assert.equal(state().commitFile, 'brand new.txt')
+assert.equal(lastCall(GIT_DIFF_PATH).query.path, 'brand new.txt')
+assert.match(state().commitFileDiff.patch, /brand new\.txt/u)
+console.log('panel: a commit lists its changed paths, and each path shows its own patch')
+
 face.git.closeCommit()
 assert.equal(state().selectedCommit, null)
-assert.equal(state().commitDiff, null)
-console.log('panel: a commit opens its own patch, and closes again')
+
+// The repository list folds to the selection and unfolds again. It is a view
+// preference, so nothing is read while it flips.
+const beforeFold = calls.length
+assert.equal(state().reposCollapsed, false)
+face.git.toggleRepos()
+assert.equal(state().reposCollapsed, true)
+face.git.toggleRepos()
+assert.equal(state().reposCollapsed, false)
+assert.equal(calls.length, beforeFold, 'folding the list reads nothing from the host')
+console.log('panel: the repository list folds and unfolds without a read')
 
 // "Load more" asks the host for a larger history.
 const beforeMore = calls.length

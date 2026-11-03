@@ -97,8 +97,12 @@ function snapshot(overrides = {}) {
     draft: '',
     busy: null,
     actionFailure: null,
+    reposCollapsed: false,
     selectedCommit: null,
     commitDiff: null,
+    commitFile: null,
+    commitFileDiff: null,
+    commitFileLoading: false,
     commitLoading: false,
     ...overrides,
   }
@@ -168,9 +172,38 @@ assert.match(brokenHistory, /历史读取失败/u, 'a failed history read is rep
 const staleHistory = render(snapshot({ commits: [], graphFailure: { kind: 'stale', message: 'HTTP 404' } }))
 assert.match(staleHistory, /重启应用/u, 'a history route the host never registered says what fixes it')
 
-const open = render(snapshot({ selectedCommit: 'aaaaaaaaaaaaaaaa', commitDiff: DIFF }))
-assert.match(open, /这次提交的改动/u, 'an opened commit shows its own patch')
-assert.match(open, /\+two/u, 'and the patch text is there')
+const open = render(snapshot({
+  selectedCommit: 'aaaaaaaaaaaaaaaa',
+  commitDiff: {
+    repo: SUMMARY, scope: 'commit', ref: 'aaaaaaaaaaaaaaaa',
+    files: [{ status: 'M', path: 'alpha.txt' }, { status: 'A', path: 'brand new.txt' }],
+    additions: 2, deletions: 0, patch: '+two\n+new\n', truncated: false,
+  },
+  commitFile: 'alpha.txt',
+  commitFileDiff: {
+    repo: SUMMARY, scope: 'commit', ref: 'aaaaaaaaaaaaaaaa',
+    files: [{ status: 'M', path: 'alpha.txt' }], additions: 1, deletions: 0, patch: '+alpha\n', truncated: false,
+  },
+}))
+assert.match(open, /这次提交的改动/u, 'an opened commit shows its own changes')
+assert.match(open, /alpha\.txt/u, 'its changed paths are listed')
+assert.match(open, /brand new\.txt/u)
+assert.match(open, /\+alpha/u, 'and the chosen path\'s patch is shown')
+
+const mergeCommit = render(snapshot({
+  selectedCommit: 'aaaaaaaaaaaaaaaa',
+  commitDiff: { repo: SUMMARY, scope: 'commit', files: [], additions: 0, deletions: 0, patch: '', truncated: false },
+}))
+assert.match(mergeCommit, /没有改动路径/u, 'a commit that lists no paths says so')
+
+// ---- The repository list folds -------------------------------------------
+
+const SECOND = { ...SUMMARY, name: 'second-repo', path: 'C:/ws/second-repo' }
+const expanded = render(snapshot({ repos: [SUMMARY, SECOND] }))
+assert.match(expanded, /second-repo/u, 'the list shows every repository when it is open')
+const folded = render(snapshot({ repos: [SUMMARY, SECOND], reposCollapsed: true }))
+assert.ok(!/second-repo/u.test(folded), 'a folded list shows only the selection')
+assert.match(folded, /work/u, 'which is still there, with its branch')
 
 const committing = render(snapshot({ busy: 'commit', draft: 'a message' }))
 assert.match(committing, /提交中/u, 'a commit in flight says so')

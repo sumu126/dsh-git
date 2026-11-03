@@ -44,9 +44,13 @@ One right-sidebar page type, reached from the guide card:
 - **diff**: the working-tree or staged comparison, with a byte-bounded patch;
 - **graph**: every commit across every ref, newest first, drawn in lanes — a dot
   per commit, a curve per parent, branch and tag chips on the refs that point at
-  it — with the author and date. Clicking a commit opens the patch it introduced,
-  so "every change" is one click away. The graph opens at 50 commits and reads
-  more on demand, never more than 200.
+  it — with the author and date. The graph opens at 50 commits and reads more on
+  demand, never more than 200. Clicking a commit opens **the files it changed**,
+  and clicking one of those shows that file's patch — the two-step a log view
+  uses, so a commit is read as "what changed, then how" rather than as one wall
+  of patch text;
+- the repository list folds to the current selection, so a machine with many
+  checkouts keeps the history and the commit box in view.
 
 A deployment that turned committing off is shown no commit box at all; the page
 adapts to what the host answered, rather than offering a button that would fail.

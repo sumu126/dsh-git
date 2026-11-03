@@ -138,7 +138,36 @@
   list-style: none;
   max-height: 26vh;
   overflow: auto;
+}
+
+.repoSection {
   border-bottom: 0.5px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.25));
+}
+
+/* The changed files of an open commit: a row per path, the shown one marked. */
+
+.commitFile {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 2px 6px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.commitFile:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.12));
+}
+
+.commitFileActive {
+  background: var(--dsw-alias-bg-layer-3, rgba(127, 127, 127, 0.16));
 }
 
 .repo {

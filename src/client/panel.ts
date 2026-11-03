@@ -60,6 +60,8 @@ export interface GitPanelSnapshot {
   truncated: boolean
   /** The selected repository path, when one is chosen. */
   selected: string | null
+  /** True when the repository list is folded to the selection. */
+  reposCollapsed: boolean
   /** The selected repository's detail. */
   detail: PanelDetail | null
   /** The comparison the diff section shows. */
@@ -78,11 +80,17 @@ export interface GitPanelSnapshot {
   busy: 'commit' | 'stage' | null
   /** Why the last mutation failed, if it did. */
   actionFailure: PanelFailure | null
-  /** The commit whose patch is open under the graph. */
+  /** The commit whose changes are open under the graph. */
   selectedCommit: string | null
-  /** The patch of the open commit, once it arrived. */
+  /** That commit's read: its changed paths, and the whole patch. */
   commitDiff: DiffPayload | null
-  /** True while the open commit's patch is in flight. */
+  /** The changed path of that commit currently shown. */
+  commitFile: string | null
+  /** That path's patch, once it arrived. */
+  commitFileDiff: DiffPayload | null
+  /** True while a changed path's patch is in flight. */
+  commitFileLoading: boolean
+  /** True while the open commit's own read is in flight. */
   commitLoading: boolean
 }
 
@@ -94,6 +102,8 @@ export interface GitPanelActions {
   chooseRoot: (path: string) => void
   /** Show another repository. */
   select: (repoPath: string) => void
+  /** Fold the repository list to the selection, or unfold it. */
+  toggleRepos: () => void
   /** Show another comparison. */
   chooseScope: (scope: PanelScope) => void
   /** Write the commit message draft. */
@@ -108,9 +118,11 @@ export interface GitPanelActions {
   stageAll: () => void
   /** Unstage everything. */
   unstageAll: () => void
-  /** Open one commit's patch under the graph. */
+  /** Open one commit's changes under the graph. */
   openCommit: (hash: string) => void
-  /** Close the open patch. */
+  /** Show one changed path of that commit. */
+  openCommitFile: (path: string) => void
+  /** Close the open commit. */
   closeCommit: () => void
   /** Raise the number of commits the graph reads. */
   loadMore: () => void
@@ -183,6 +195,7 @@ export class GitPanelController implements SnapshotStore<GitPanelSnapshot> {
     repos: [],
     truncated: false,
     selected: null,
+    reposCollapsed: false,
     detail: null,
     scope: 'working',
     message: null,
@@ -194,6 +207,9 @@ export class GitPanelController implements SnapshotStore<GitPanelSnapshot> {
     actionFailure: null,
     selectedCommit: null,
     commitDiff: null,
+    commitFile: null,
+    commitFileDiff: null,
+    commitFileLoading: false,
     commitLoading: false,
   }
 
@@ -215,13 +231,19 @@ export class GitPanelController implements SnapshotStore<GitPanelSnapshot> {
     chooseRoot: (path) => {
       this.set({
         ...this.state, root: path, selected: null, detail: null, message: null,
-        commits: [], selectedCommit: null, commitDiff: null,
+        commits: [], selectedCommit: null, commitDiff: null, commitFile: null, commitFileDiff: null,
       })
       void this.navigate()
     },
     select: (repoPath) => {
-      this.set({ ...this.state, selected: repoPath, detail: null, selectedCommit: null, commitDiff: null })
+      this.set({
+        ...this.state, selected: repoPath, detail: null,
+        selectedCommit: null, commitDiff: null, commitFile: null, commitFileDiff: null,
+      })
       void this.navigate()
+    },
+    toggleRepos: () => {
+      this.set({ ...this.state, reposCollapsed: !this.state.reposCollapsed })
     },
     chooseScope: (scope) => {
       this.set({ ...this.state, scope })
@@ -235,9 +257,13 @@ export class GitPanelController implements SnapshotStore<GitPanelSnapshot> {
     unstage: (path) => { void this.mutateStage('unstage', [path]) },
     stageAll: () => { void this.mutateStage('stage', undefined, true) },
     unstageAll: () => { void this.mutateStage('unstage', undefined, true) },
-    openCommit: (hash) => { void this.openCommitPatch(hash) },
+    openCommit: (hash) => { void this.openCommitChanges(hash) },
+    openCommitFile: (path) => { void this.openCommitFile(path) },
     closeCommit: () => {
-      this.set({ ...this.state, selectedCommit: null, commitDiff: null, commitLoading: false })
+      this.set({
+        ...this.state, selectedCommit: null, commitDiff: null, commitFile: null,
+        commitFileDiff: null, commitFileLoading: false, commitLoading: false,
+      })
     },
     loadMore: () => {
       const limit = Math.min(GRAPH_MAX, this.state.graphLimit + GRAPH_STEP)
@@ -479,22 +505,62 @@ export class GitPanelController implements SnapshotStore<GitPanelSnapshot> {
     })
   }
 
-  /** Read one commit's patch and open it under the graph. */
-  private async openCommitPatch(hash: string): Promise<void> {
+  /**
+   * Read one commit: its changed paths first, then the patch of the first one.
+   *
+   * A commit is read the way a log view is read — the list of files it touched,
+   * then one file's diff — because that is what a reader wants to see: what
+   * changed, and then how.
+   */
+  private async openCommitChanges(hash: string): Promise<void> {
     const repo = this.state.selected
     if (repo === null || this.disposed) return
     if (this.state.selectedCommit === hash) {
-      this.set({ ...this.state, selectedCommit: null, commitDiff: null, commitLoading: false })
+      this.actions.closeCommit()
       return
     }
-    this.set({ ...this.state, selectedCommit: hash, commitDiff: null, commitLoading: true, actionFailure: null })
+    this.set({
+      ...this.state, selectedCommit: hash, commitDiff: null, commitFile: null,
+      commitFileDiff: null, commitFileLoading: false, commitLoading: true, actionFailure: null,
+    })
     try {
       const answer = await readJson<DiffAnswer>(GIT_DIFF_PATH, { repo, scope: 'commit', ref: hash }, new AbortController().signal)
       if (this.disposed) return
-      this.set({ ...this.state, commitDiff: answer.diff ?? null, commitLoading: false })
+      const diff = answer.diff ?? null
+      this.set({ ...this.state, commitDiff: diff, commitLoading: false })
+      const first = diff?.files[0]
+      // The first changed path opens on arrival, so a click already shows a diff
+      // rather than an empty box and a list to click again.
+      if (first !== undefined) await this.openCommitFile(first.path)
     } catch (error: unknown) {
       if (this.disposed) return
       this.set({ ...this.state, commitLoading: false, actionFailure: failureOf(error) })
+    }
+  }
+
+  /**
+   * Read one changed path of the open commit.
+   *
+   * The route already narrows a commit diff with a path, so this is the same
+   * read as the commit's own, one file wide.
+   */
+  private async openCommitFile(path: string): Promise<void> {
+    const repo = this.state.selected
+    const hash = this.state.selectedCommit
+    if (repo === null || hash === null || this.disposed) return
+    if (this.state.commitFile === path && this.state.commitFileDiff !== null) return
+    this.set({ ...this.state, commitFile: path, commitFileDiff: null, commitFileLoading: true })
+    try {
+      const answer = await readJson<DiffAnswer>(
+        GIT_DIFF_PATH,
+        { repo, scope: 'commit', ref: hash, path },
+        new AbortController().signal,
+      )
+      if (this.disposed) return
+      this.set({ ...this.state, commitFileDiff: answer.diff ?? null, commitFileLoading: false })
+    } catch (error: unknown) {
+      if (this.disposed) return
+      this.set({ ...this.state, commitFileLoading: false, actionFailure: failureOf(error) })
     }
   }
 }

@@ -172,6 +172,12 @@ assert.match(open, /\+two/u, 'and the patch text is there')
 const committing = render(snapshot({ busy: 'commit', draft: 'a message' }))
 assert.match(committing, /提交中/u, 'a commit in flight says so')
 assert.match(committing, /disabled/u, 'and its button is disabled')
-console.log('render: empty history, a stale host, a failed read, an open commit, and a commit in flight all render')
+
+// A snapshot from a host that predates the capabilities field: the page must draw
+// a read-only panel rather than crash on an absent object.
+const older = render(snapshot({ capabilities: undefined }))
+assert.ok(!/Ctrl\+Enter/u.test(older), 'a snapshot without capabilities renders no commit box')
+assert.match(older, /图形/u, 'and still draws the history')
+console.log('render: empty history, a stale host, a failed read, an open commit, a commit in flight, and an older host all render')
 
 console.log('render check passed')

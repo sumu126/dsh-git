@@ -338,7 +338,16 @@ export class GitPanelController implements SnapshotStore<GitPanelSnapshot> {
     const payload = await readJson<RootsPayload>(GIT_ROOTS_PATH, {}, signal)
     if (this.disposed) return
     const root = this.state.root.length > 0 ? this.state.root : payload.default
-    this.set({ ...this.state, roots: payload.roots, root, capabilities: payload.capabilities })
+    // A host from before the capabilities field answers without it. Reading that
+    // as "nothing is allowed" is what keeps a page that hot-swapped against an
+    // older process showing a panel instead of a stack trace — and it is true:
+    // that process has no commit or stage route to call.
+    this.set({
+      ...this.state,
+      roots: payload.roots,
+      root,
+      capabilities: payload.capabilities ?? { stage: false, commit: false, switch: false },
+    })
   }
 
   /** Read the repositories under the selected root. */

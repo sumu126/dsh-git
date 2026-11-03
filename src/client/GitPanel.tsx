@@ -16,7 +16,7 @@
 import { useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { CommitSummary, DiffPayload, RepoStatus, RepoSummary } from '../contract.ts'
+import type { Capabilities, CommitSummary, DiffPayload, RepoStatus, RepoSummary } from '../contract.ts'
 import { COMMIT_NEEDS_MESSAGE, type GitPanelActions, type GitPanelSnapshot } from './panel.ts'
 import { GRAPH_COLORS, edgePath, layoutGraph } from './graph.ts'
 import styles from './panel.module.css'
@@ -71,6 +71,9 @@ export function GitIcon({ size }: { size?: number | undefined }): ReactNode {
 export function GitPanelTitle({ t }: PropsLocale<'panel.git'>): ReactNode {
   return t('panelTitle')
 }
+
+/** What a snapshot from a host that predates the capabilities field means. */
+const NO_CAPABILITIES: Capabilities = { stage: false, commit: false, switch: false }
 
 /** A summary's position relative to its upstream, in the reader's language. */
 function position(t: GitPanelProps['t'], repo: RepoSummary): string {
@@ -147,7 +150,8 @@ function CommitBox(
   // Whether "commit" also stages everything. Local state: it is a preference of
   // the click, not something the repository knows.
   const [stageAll, setStageAll] = useState(false)
-  if (!state.capabilities.commit) return null
+  const available = state.capabilities ?? NO_CAPABILITIES
+  if (!available.commit) return null
   const busy = state.busy === 'commit'
   const blank = state.draft.trim().length === 0
   const submit = (): void => { actions.commit(stageAll) }
@@ -452,6 +456,7 @@ export function GitPanel(props: GitPanelProps): ReactNode {
   const state = useGitPanel(snapshot => snapshot)
   const selected = state.repos.find(repo => repo.path === state.selected)
   const status = state.detail?.status ?? null
+  const capabilities = state.capabilities ?? NO_CAPABILITIES
 
   return (
     <div className={styles.panel}>
@@ -527,7 +532,7 @@ export function GitPanel(props: GitPanelProps): ReactNode {
                   : null}
                 <CommitBox t={t} state={state} actions={git} />
                 <div className={styles.scroll}>
-                  {status === null ? null : <Changes t={t} status={status} actions={git} capabilities={state.capabilities} />}
+                  {status === null ? null : <Changes t={t} status={status} actions={git} capabilities={capabilities} />}
                   <Compared t={t} state={state} actions={git} />
                   <Graph t={t} state={state} actions={git} />
                 </div>

@@ -211,7 +211,7 @@ function answer(path, query) {
     return {
       roots: [{ path: 'C:/ws', title: 'ws', source: 'workspace' }],
       default: 'C:/ws',
-      capabilities: { stage: true, commit: true, switch: true },
+      ...omitCapabilities ? {} : { capabilities: { stage: true, commit: true, switch: true } },
     }
   }
   if (path === GIT_REPOS_PATH) {
@@ -243,6 +243,8 @@ function answer(path, query) {
 /** Every route call this check caused, in order. */
 const calls = []
 let failing = false
+/** When set, the roots answer is the one a host from before `capabilities` sends. */
+let omitCapabilities = false
 
 globalThis.window = { location: { origin: 'http://127.0.0.1:3099' } }
 globalThis.fetch = async (request, init = {}) => {
@@ -402,6 +404,25 @@ face.git.refresh()
 await settle()
 assert.equal(state().phase, 'ready')
 assert.equal(state().message, null)
+
+// ---- A host from before the capabilities field -----------------------------
+//
+// The browser half is served from disk and hot-swaps while the process behind it
+// keeps running: a page that refreshed after an update can talk to a host that
+// has no commit route and no capabilities in its answer. Reading that as "nothing
+// is allowed" is what keeps the panel a panel instead of a stack trace.
+
+omitCapabilities = true
+face.git.refresh()
+await settle()
+assert.equal(state().phase, 'ready', 'the panel still opens against an older host')
+assert.deepEqual(state().capabilities, { stage: false, commit: false, switch: false },
+  'an older host is read as allowing nothing, which is true: it has no such route')
+omitCapabilities = false
+face.git.refresh()
+await settle()
+assert.deepEqual(state().capabilities, { stage: true, commit: true, switch: true }, 'and the newer host is read again')
+console.log('panel: a host without the capabilities field is read as read-only, not crashed on')
 
 // ---- Unloading ------------------------------------------------------------
 

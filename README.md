@@ -105,6 +105,42 @@ A fresh bundle row is picked up by the plugin manager's reload; a **replaced**
 bundle needs a restart, because the host modules are fixed at process start. The
 browser half is served from disk and hot-swaps on a page refresh.
 
+### From a git URL
+
+A published repository installs the same way any other git-hosted package does —
+`github:sumu126/dsh-git`, `https://github.com/sumu126/dsh-git`, or
+`git+https://github.com/sumu126/dsh-git.git#main`. `lib/` is not committed, so the
+install builds it: pnpm runs `prepack`, which needs the build tools, and pnpm
+refuses to run a git-hosted package's build scripts until the profile approves
+them:
+
+```yaml
+# <profile>/pnpm-workspace.yaml
+allowBuilds:
+  dsh-git@<resolved-url>#<commit>: true
+```
+
+The refusal prints the exact line to add. The key is bound to the **commit**, so a
+new HEAD needs a new line — that is pnpm's rule for every git dependency, not
+this plugin's.
+
+Everything the install needs is declared in the manifest:
+
+| Field | Value | What reads it |
+| --- | --- | --- |
+| `dsh.manifestVersion` | `1` | the manifest format |
+| `dsh.bundle.patch` | `./cordis.patch.yml` | the launcher, as this bundle's layer |
+| `dsh.client.platform` | `web` | the client module loader |
+| `dsh.client.inject` | the client packages the half expects | module ordering |
+| `main` / `exports` | `lib/index.js` / `lib/client.js` | the loader, and the module table |
+| `files` | `lib`, `src`, the patch, README, LICENSE | what the packed artifact carries |
+| `engines.node` | `>=22` | the deployment |
+
+`engines.dsh` is deliberately absent: when it is declared it decides alone, and
+any range narrow enough to exclude 0.1.6 would also exclude the 0.2.1 release
+candidate this plugin is used on. Without it, the compatibility check falls back
+to the `@deepseek-ai/dsh*` peer ranges, which are `*`.
+
 ## Development
 
 Run from this directory. `tsconfig.json` points `@deepseek-ai/*` at the harness

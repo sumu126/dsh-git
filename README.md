@@ -117,12 +117,13 @@ them:
 ```yaml
 # <profile>/pnpm-workspace.yaml
 allowBuilds:
-  dsh-git@<resolved-url>#<commit>: true
+  dsh-git@https://codeload.github.com/sumu126/dsh-git/tar.gz/<commit>: true
 ```
 
-The refusal prints the exact line to add. The key is bound to the **commit**, so a
-new HEAD needs a new line — that is pnpm's rule for every git dependency, not
-this plugin's.
+The refusal prints the exact line to copy, and the address it prints is the one
+pnpm resolved — a codeload tarball for GitHub, `git+…` for a plain git URL. The
+key contains the **commit**, so a new HEAD needs a new line; that is pnpm's rule
+for every git dependency, not this plugin's.
 
 Everything the install needs is declared in the manifest:
 

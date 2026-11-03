@@ -52,7 +52,8 @@
     "verify:host": "node --import tsx/esm scripts/verify-host.mjs",
     "verify:client": "node --import tsx/esm scripts/verify-client.mjs",
     "verify:cards": "node --import tsx/esm scripts/verify-cards.mjs",
-    "verify:loader": "node --import tsx/esm tests/loader-smoke.mjs"
+    "verify:loader": "node --import tsx/esm tests/loader-smoke.mjs",
+    "verify:desktop": "node scripts/verify-desktop.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",

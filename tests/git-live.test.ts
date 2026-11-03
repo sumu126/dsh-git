@@ -24,7 +24,15 @@ import {
 
 /** The temporary tree every repository in this suite lives under. */
 const ROOT = mkdtempSync(join(tmpdir(), 'dsh-git-live-'))
-after(() => { rmSync(ROOT, { recursive: true, force: true }) })
+after(() => {
+  // Windows may still hold a directory for a moment after the last git process
+  // exits; the suite's subject is the plugin, not the platform's file cleanup.
+  try {
+    rmSync(ROOT, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+  } catch {
+    // Left for the platform's own temporary-file cleanup.
+  }
+})
 
 /** The bounded runner under test. */
 const git = new Git({ command: 'git', timeoutMs: 30_000, maxOutputBytes: 1_048_576 })

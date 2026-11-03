@@ -1,26 +1,50 @@
 /**
- * Desktop-runtime probe (development only, not part of the package).
+ * Desktop-runtime gate: run the BUILT plugin on the application's own runtime.
  *
- * Loads the BUILT plugin with the desktop application's own 0.2.1 runtime: the
- * real `@deepseek-ai/dsh-tools`, the real 0.2.1 Schemastery, the real Cordis and
- * the real tool registry, all imported straight out of `app.asar`. Then it calls
- * every registered tool against a throwaway repository and validates each answer
- * against the output schema that tool declared.
+ * The dev checkout beside this plugin is 0.1.6, and "works on 0.1.6" is not the
+ * same claim as "works in the app the user is running". This loads the built
+ * plugin with the real 0.2.1 `@deepseek-ai/dsh-tools`, the real 0.2.1
+ * Schemastery, the real Cordis, and the real tool registry — all imported
+ * straight out of `app.asar` — then calls every registered tool against a
+ * throwaway repository and validates each answer against the output schema the
+ * tool declared.
  *
- * This exists because the dev checkout beside this plugin is 0.1.6, and "works on
- * 0.1.6" is not the same claim as "works in the app the user is running".
+ * It must run under the desktop application's own Node, because only that Node
+ * can import a module from inside the archive:
  *
- *   & "$env:DSH_DESKTOP_NODE_EXECUTABLE" probe-desktop.mjs   (ELECTRON_RUN_AS_NODE=1)
+ *   $env:ELECTRON_RUN_AS_NODE = '1'
+ *   & '<app>\DeepSeek Harness.exe' --expose-internals scripts/verify-desktop.mjs
+ *
+ * or, equivalently, through the launcher the app ships:
+ *
+ *   $env:DSH_DESKTOP_NODE_EXECUTABLE = '<app>\DeepSeek Harness.exe'
+ *   & '<app>\resources\runtime\bin\node.cmd' scripts/verify-desktop.mjs
+ *
+ * `DSH_DESKTOP_APP` overrides where the application is looked for.
  */
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { registerHooks } from 'node:module'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const ASAR = 'S:/app/dsh/resources/app.asar'
+const scriptDirectory = dirname(fileURLToPath(import.meta.url))
+
+/** Where the desktop application lives: its executable's own directory by default. */
+const APP = process.env.DSH_DESKTOP_APP ?? dirname(process.execPath)
+const ASAR = join(APP, 'resources', 'app.asar')
 const HARNESS = `${ASAR}/dsh/node_modules`
+
+if (!existsSync(ASAR)) {
+  console.error('verify-desktop needs the desktop application\'s runtime.')
+  console.error(`looked for: ${ASAR}`)
+  console.error('run it with the app\'s own Node:')
+  console.error('  $env:ELECTRON_RUN_AS_NODE = \'1\'')
+  console.error('  & \'<app>\\DeepSeek Harness.exe\' --expose-internals scripts/verify-desktop.mjs')
+  process.exit(1)
+}
 
 /** The entry URL one harness package's root export names. */
 function entryOf(name) {
@@ -73,7 +97,7 @@ const { Context } = await import(entryOf('@deepseek-ai/cordis'))
 const SystemPrompt = (await import(entryOf('@deepseek-ai/dsh-system-prompt'))).default
 const { ToolRuntime } = await import(entryOf('@deepseek-ai/dsh-tools'))
 const { validateJsonSchemaValue } = await import(`file:///${HARNESS}/@deepseek-ai/dsh-tools/lib/types/json-schema.js`)
-const plugin = await import('file:///S:/dev/DSH/dsh-git/lib/index.js')
+const plugin = await import(pathToFileURL(resolve(scriptDirectory, '..', 'lib', 'index.js')).href)
 const ROUTES = {
   roots: '/api/dsh-git/roots',
   repos: '/api/dsh-git/repos',
@@ -209,5 +233,5 @@ assert.equal(body.status.repo.name, 'checkout')
 console.log('routes: the panel reads the same repository the tools read')
 
 await ctx.fiber.dispose()
-console.log('desktop probe passed')
+console.log('desktop check passed')
 process.exit(0)

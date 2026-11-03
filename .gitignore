@@ -1,5 +1,5 @@
 node_modules/
 lib/
 *.log
-.dev/sandbox-repo/
-.dev/ref/
+# Development scratch: asar extracts, throwaway harness homes, probe repositories.
+.dev/

@@ -130,6 +130,13 @@ assert.equal(ctx.tools.get('git_status'), undefined, 'git_status goes with the r
 assert.equal(ctx.tools.get('git_diff'), undefined, 'git_diff goes with the row fiber')
 console.log('unload: the row fiber took its tools, and the registry stayed up')
 
-await rm(home, { recursive: true, force: true })
+// The assertions above are the check. The temporary tree may still be held for a
+// moment by a git process on Windows; that is the platform's business, not this
+// plugin's, and a failed cleanup is not a failed composition.
+try {
+  await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+} catch {
+  // Left for the platform's own temporary-file cleanup.
+}
 console.log('loader smoke passed')
 process.exit(0)

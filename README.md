@@ -120,8 +120,23 @@ npm run verify:host    # mounts the plugin, calls every tool, validates its outp
 npm run verify:client  # runs the browser half's apply against node doubles
 npm run verify:cards   # what the client's row reads out of metadata
 npm run verify:loader  # composition through the real Loader, then unloads the row
+npm run verify:desktop # the built plugin on the app's OWN 0.2.1 runtime (see below)
 npm run build          # lib/index.js (ESM) and lib/client.js (module-table factory)
 ```
+
+`verify:desktop` runs the built artifacts against the desktop application's own
+runtime — its `@deepseek-ai/dsh-tools` and Schemastery, imported straight out of
+`app.asar` — and must be launched with that application's Node, because only it
+can import from inside the archive:
+
+```
+$env:ELECTRON_RUN_AS_NODE = '1'
+& 'S:\app\dsh\DeepSeek Harness.exe' --expose-internals scripts/verify-desktop.mjs
+```
+
+It is the one gate that speaks for the generation the user actually runs: the
+checkout beside this plugin is 0.1.6, and a plugin that works there is not
+automatically a plugin that works in the app.
 
 The live suite is not decoration: a status read that used `--porcelain=v1`, a
 commit message that reached git as an option, or a diff bound that was applied to

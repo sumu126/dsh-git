@@ -22,7 +22,7 @@ registerHooks({ resolve, load })
 const { createElement } = await import('react')
 const { renderToStaticMarkup } = await import('react-dom/server')
 const { GitPanel } = await import('../src/client/GitPanel.tsx')
-const { DiffView } = await import('../src/client/DiffTab.tsx')
+const { DiffView, DiffTabTitle } = await import('../src/client/DiffTab.tsx')
 const { zh } = await import('../src/client/locales.ts')
 
 /** The translate seat, with `{name}` interpolation. */
@@ -222,27 +222,45 @@ const DIFF_PATCH = [
 
 const diffHtml = renderDiff({
   path: 'src/client/GitPanel.tsx',
+  repoName: 'dsh-git',
+  label: 'b19d2a8',
   additions: 2,
   deletions: 1,
   patch: DIFF_PATCH,
 })
 assert.match(diffHtml, /GitPanel\.tsx/u, 'the tab names the file')
-assert.match(diffHtml, /src\/client/u, 'and its directory')
-assert.match(diffHtml, /TSX/u, 'and its type badge')
+assert.equal(count(diffHtml, /class="crumb"/gu), 3, 'the breadcrumb carries the repository and its directories')
+assert.match(diffHtml, /<span class="crumb">src<\/span>/u, 'one step per directory')
+assert.match(diffHtml, /dsh-git/u, 'the breadcrumb starts at the repository')
+assert.match(diffHtml, /›/u, 'and separates its steps')
+assert.match(diffHtml, /b19d2a8/u, 'the header says what it is compared against')
+assert.match(diffHtml, /TSX/u, 'and the type badge')
 assert.match(diffHtml, /\+2/u, 'with the line totals')
 assert.match(diffHtml, /−1/u)
 assert.match(diffHtml, /并排/u, 'side by side is the default layout')
 assert.match(diffHtml, /统一/u, 'and the unified layout is one click away')
 assert.match(diffHtml, /@@ -1,3 \+1,4 @@/u, 'the hunk header is shown')
-assert.match(diffHtml, /return oldValue/u, 'the removed line is there')
-assert.match(diffHtml, /return newValue/u, 'the added line is there')
+assert.match(diffHtml, /oldValue/u, 'the removed line is there')
+assert.match(diffHtml, /newValue/u, 'the added line is there')
+// The change is marked inside the line: only the word that changed is tinted.
+assert.equal(count(diffHtml, /class="changedDel"/gu), 1, 'one changed word on the old side')
+assert.equal(count(diffHtml, /class="changedAdd"/gu), 1, 'and one on the new side')
+assert.match(diffHtml, /<span class="changedDel">oldValue<\/span>/u, 'the whole-word change is marked on the left')
+assert.match(diffHtml, /<span class="changedAdd">newValue<\/span>/u, 'and on the right')
 assert.equal(count(diffHtml, /class="splitRow"/gu), 4, 'four side-by-side rows: context, change, extra add, context')
 assert.equal(count(diffHtml, /class="cell del"/gu), 1, 'one removed cell')
 assert.equal(count(diffHtml, /class="cell add"/gu), 2, 'two added cells')
-console.log(`render: the diff tab draws ${String(count(diffHtml, /class="splitRow"/gu))} rows side by side`)
+console.log(`render: the diff tab draws ${String(count(diffHtml, /class="splitRow"/gu))} rows side by side, with the changed words marked`)
 
 const emptyDiff = renderDiff({ path: 'a.txt', additions: 0, deletions: 0, patch: '' })
 assert.match(emptyDiff, /没有改动/u, 'a patch with no hunk says so')
+
+// The tab's chip: the file's name and what it is compared against.
+const title = renderToStaticMarkup(createElement(DiffTabTitle, {
+  t: translate,
+  useTabInfo: () => ({ tab: { navigation: { params: { repo: 'C:/ws/work', path: 'src/client/index.ts', scope: 'commit', ref: 'b19d2a8deadbeef' } } } }),
+}))
+assert.equal(title, 'index.ts (b19d2a8)', 'the chip names the file and the version')
 
 // ---- The repository list folds -------------------------------------------
 

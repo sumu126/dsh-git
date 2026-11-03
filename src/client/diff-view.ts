@@ -45,8 +45,66 @@ export interface ParsedDiff {
   hunks: DiffHunk[]
 }
 
+/** One run of text inside a line, marked when it is what changed. */
+export interface DiffSegment {
+  /** The text of the run. */
+  text: string
+  /** True when this run is part of the change, false when it is shared. */
+  changed: boolean
+}
+
 /** An empty half of a row. */
 const BLANK: DiffLine = { kind: 'none', number: null, text: '' }
+
+/**
+ * Split one line into the tokens a word-level comparison works on.
+ *
+ * Words, whitespace runs, and runs of punctuation or non-Latin text are the
+ * tokens: comparing characters would mark half a word when a word was replaced,
+ * which reads worse than the whole word being marked.
+ * @param text - the line.
+ * @returns its tokens, without the empty strings `split` can produce.
+ */
+function tokens(text: string): string[] {
+  return text.split(/(\s+|[A-Za-z0-9_$]+|[^\sA-Za-z0-9_$]+)/u).filter(token => token.length > 0)
+}
+
+/**
+ * Mark what actually changed between a removed line and the line that replaced it.
+ *
+ * A diff editor highlights the changed words inside the changed line, not the
+ * whole line: a one-word edit on a long line is otherwise indistinguishable from
+ * a rewrite. The shared prefix and suffix are found by token, and what remains in
+ * the middle is the change.
+ * @param removed - the old line's text.
+ * @param added - the new line's text.
+ * @returns the two sides, each as runs of shared and changed text.
+ */
+export function markChanged(removed: string, added: string): { left: DiffSegment[], right: DiffSegment[] } {
+  const before = tokens(removed)
+  const after = tokens(added)
+  let prefix = 0
+  while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix += 1
+  let suffix = 0
+  while (
+    suffix < before.length - prefix
+    && suffix < after.length - prefix
+    && before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+  ) suffix += 1
+
+  const build = (list: readonly string[]): DiffSegment[] => {
+    const head = list.slice(0, prefix).join('')
+    const middle = list.slice(prefix, list.length - suffix).join('')
+    const tail = suffix === 0 ? '' : list.slice(list.length - suffix).join('')
+    const segments: DiffSegment[] = []
+    if (head.length > 0) segments.push({ text: head, changed: false })
+    if (middle.length > 0) segments.push({ text: middle, changed: true })
+    if (tail.length > 0) segments.push({ text: tail, changed: false })
+    return segments
+  }
+
+  return { left: build(before), right: build(after) }
+}
 
 /** The `@@ -a,b +c,d @@` header, whose two numbers are the first line of each side. */
 const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/u

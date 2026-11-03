@@ -10,7 +10,7 @@
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { countDiff, parseDiff } from '../src/client/diff-view.ts'
+import { countDiff, markChanged, parseDiff } from '../src/client/diff-view.ts'
 
 /** One patch with a changed line, an extra added line, and context around it. */
 const PATCH = [
@@ -105,4 +105,39 @@ test('a patch with no hunk has nothing to draw', () => {
   assert.deepEqual(parseDiff(''), { hunks: [] })
   assert.deepEqual(parseDiff('diff --git a/a b/a\nindex 1..2 100644\n'), { hunks: [] })
   assert.deepEqual(countDiff(parseDiff('')), { additions: 0, deletions: 0 })
+})
+
+test('the changed words are marked, not the whole line', () => {
+  const marked = markChanged('const a = 1', 'const b = 1')
+  assert.deepEqual(marked.left, [
+    { text: 'const ', changed: false },
+    { text: 'a', changed: true },
+    { text: ' = 1', changed: false },
+  ])
+  assert.deepEqual(marked.right, [
+    { text: 'const ', changed: false },
+    { text: 'b', changed: true },
+    { text: ' = 1', changed: false },
+  ])
+})
+
+test('a one-word import swap marks the imported name only', () => {
+  const marked = markChanged(
+    "import { GIT_TAB_ID } from '../contract.ts'",
+    "import { GIT_FILE_TAB_ID } from '../contract.ts'",
+  )
+  assert.deepEqual(marked.left.find(segment => segment.changed), { text: 'GIT_TAB_ID', changed: true })
+  assert.deepEqual(marked.right.find(segment => segment.changed), { text: 'GIT_FILE_TAB_ID', changed: true })
+})
+
+test('a pure insertion marks everything that was added', () => {
+  const marked = markChanged('', 'new line')
+  assert.deepEqual(marked.left, [])
+  assert.deepEqual(marked.right, [{ text: 'new line', changed: true }])
+})
+
+test('identical text has nothing marked', () => {
+  const marked = markChanged('same', 'same')
+  assert.deepEqual(marked.left, [{ text: 'same', changed: false }])
+  assert.deepEqual(marked.right, [{ text: 'same', changed: false }])
 })

@@ -87,12 +87,51 @@
 }
 
 .name {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
+}
+
+/* The breadcrumb: repository › directories › file, each step truncating on its
+   own so a deep path keeps the file's name visible. */
+
+.crumbs {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.crumb {
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 18ch;
+  font-size: 11px;
+}
+
+.sep {
+  color: var(--dsw-alias-label-tertiary, currentColor);
+  flex: 0 0 auto;
+  opacity: 0.6;
+}
+
+.label {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 0.5px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, 0.35));
+  color: var(--dsw-alias-label-secondary, currentColor);
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
 }
 
 .dir {
@@ -203,6 +242,19 @@
 
 .add {
   background: rgba(67, 181, 129, 0.16);
+}
+
+/* The words that changed, inside a changed line: a stronger tint on top of the
+   line's own, which is what a diff editor highlights. */
+
+.changedDel {
+  background: rgba(229, 100, 90, 0.38);
+  border-radius: 2px;
+}
+
+.changedAdd {
+  background: rgba(67, 181, 129, 0.38);
+  border-radius: 2px;
 }
 
 .blank {

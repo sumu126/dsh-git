@@ -19,7 +19,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import { GIT_DIFF_PATH, type DiffAnswer, type DiffPayload, type GitDiffTabParams } from '../contract.ts'
 import { readJson } from './api.ts'
 import { fileBadge, splitPath } from './file-badge.ts'
-import { parseDiff, type DiffHunk } from './diff-view.ts'
+import { parseDiff, markChanged, type DiffHunk, type DiffSegment } from './diff-view.ts'
 import styles from './diff.module.css'
 
 /** This tab's copy binder. */
@@ -31,6 +31,10 @@ export interface DiffViewProps {
   t: Translate
   /** The file's path, relative to the repository root. */
   path: string
+  /** The repository's own name, for the breadcrumb. */
+  repoName?: string
+  /** What the file is compared against, such as a commit's short object name. */
+  label?: string
   /** Added lines, as the diff route counted them. */
   additions: number
   /** Removed lines. */
@@ -39,19 +43,45 @@ export interface DiffViewProps {
   patch: string
 }
 
+/** One side of a changed line, with the words that changed marked. */
+function ChangedLine({ segments, side }: { segments: readonly DiffSegment[], side: 'left' | 'right' }): ReactNode {
+  return (
+    <>
+      {segments.map((segment, index) => segment.changed
+        ? (
+          <span
+            key={String(index)}
+            className={side === 'left' ? styles.changedDel : styles.changedAdd}
+          >
+            {segment.text}
+          </span>
+        )
+        : <Fragment key={String(index)}>{segment.text}</Fragment>)}
+    </>
+  )
+}
+
 /** One hunk's rows, drawn side by side. */
 function SplitHunk({ hunk }: { hunk: DiffHunk }): ReactNode {
   return (
     <>
       <div className={styles.hunkHeader}>{hunk.header}</div>
-      {hunk.rows.map((row, index) => (
-        <div key={String(index)} className={styles.splitRow}>
-          <span className={`${styles.num} ${row.left.kind === 'none' ? styles.numBlank : ''}`}>{row.left.number ?? ''}</span>
-          <span className={`${styles.cell} ${row.left.kind === 'del' ? styles.del : row.left.kind === 'none' ? styles.blank : ''}`}>{row.left.text}</span>
-          <span className={`${styles.num} ${row.right.kind === 'none' ? styles.numBlank : ''}`}>{row.right.number ?? ''}</span>
-          <span className={`${styles.cell} ${row.right.kind === 'add' ? styles.add : row.right.kind === 'none' ? styles.blank : ''}`}>{row.right.text}</span>
-        </div>
-      ))}
+      {hunk.rows.map((row, index) => {
+        const changed = row.left.kind === 'del' && row.right.kind === 'add'
+        const marked = changed ? markChanged(row.left.text, row.right.text) : undefined
+        return (
+          <div key={String(index)} className={styles.splitRow}>
+            <span className={`${styles.num} ${row.left.kind === 'none' ? styles.numBlank : ''}`}>{row.left.number ?? ''}</span>
+            <span className={`${styles.cell} ${row.left.kind === 'del' ? styles.del : row.left.kind === 'none' ? styles.blank : ''}`}>
+              {marked === undefined ? row.left.text : <ChangedLine segments={marked.left} side="left" />}
+            </span>
+            <span className={`${styles.num} ${row.right.kind === 'none' ? styles.numBlank : ''}`}>{row.right.number ?? ''}</span>
+            <span className={`${styles.cell} ${row.right.kind === 'add' ? styles.add : row.right.kind === 'none' ? styles.blank : ''}`}>
+              {marked === undefined ? row.right.text : <ChangedLine segments={marked.right} side="right" />}
+            </span>
+          </div>
+        )
+      })}
     </>
   )
 }
@@ -107,17 +137,32 @@ function UnifiedHunk({ hunk }: { hunk: DiffHunk }): ReactNode {
  * @param props - the path, the totals, the patch, and the copy binder.
  * @returns the header and the hunks, in the chosen layout.
  */
-export function DiffView({ t, path, additions, deletions, patch }: DiffViewProps): ReactNode {
+export function DiffView({ t, path, repoName, label, additions, deletions, patch }: DiffViewProps): ReactNode {
   const [split, setSplit] = useState(true)
   const parsed = useMemo(() => parseDiff(patch), [patch])
   const badge = fileBadge(path)
   const { directory, name } = splitPath(path)
+  // The breadcrumb a diff editor shows: where the file lives, from the repository
+  // down. The name is last because that is what the reader already knows.
+  const trail = [
+    ...repoName === undefined || repoName.length === 0 ? [] : [repoName],
+    ...directory.length === 0 ? [] : directory.split('/'),
+  ]
   return (
     <div className={styles.view}>
       <header className={styles.head}>
-        <span className={`${styles.badge} ${styles[`tone-${badge.tone}`] ?? ''}`}>{badge.label}</span>
-        <span className={styles.name}>{name}</span>
-        {directory.length === 0 ? null : <span className={styles.dir}>{directory}</span>}
+        <span className={styles.crumbs}>
+          {trail.map((part, index) => (
+            <Fragment key={`${part}-${String(index)}`}>
+              {index === 0 ? null : <span className={styles.sep}>›</span>}
+              <span className={styles.crumb}>{part}</span>
+            </Fragment>
+          ))}
+          {trail.length === 0 ? null : <span className={styles.sep}>›</span>}
+          <span className={`${styles.badge} ${styles[`tone-${badge.tone}`] ?? ''}`}>{badge.label}</span>
+          <span className={styles.name}>{name}</span>
+        </span>
+        {label === undefined || label.length === 0 ? null : <span className={styles.label}>{label}</span>}
         <span className={styles.counts}>
           <span className={styles.additions}>+{additions}</span>
           <span className={styles.deletions}>−{deletions}</span>
@@ -196,6 +241,8 @@ export function DiffTab({ t, useTabInfo }: PropsRuntime<'sidebar.right.pane.tab'
     <DiffView
       t={t}
       path={path}
+      repoName={splitPath(repo).name}
+      label={comparisonLabel(t, params)}
       additions={state.diff.additions}
       deletions={state.diff.deletions}
       patch={state.diff.patch}
@@ -204,14 +251,32 @@ export function DiffTab({ t, useTabInfo }: PropsRuntime<'sidebar.right.pane.tab'
 }
 
 /**
- * Render the tab's chip title: the file's own name.
- * @param props - the title seat's tab information.
- * @returns the file name, or nothing while the tab carries no file.
+ * What one tab's file is compared against, as its chip and header show it.
+ * @param t - the copy binder.
+ * @param params - the tab's navigation parameters.
+ * @returns the commit's short name, or the comparison's name.
  */
-export function DiffTabTitle({ useTabInfo }: PropsRuntime<'sidebar.right.pane.tab.title'>): ReactNode {
+function comparisonLabel(t: Translate, params: GitDiffTabParams | undefined): string {
+  const scope = params?.scope ?? 'working'
+  if (scope === 'commit') {
+    const ref = params?.ref ?? ''
+    return ref.length >= 7 ? ref.slice(0, 7) : ref
+  }
+  return scope === 'staged' ? t('scopeStaged') : t('scopeWorking')
+}
+
+/**
+ * Render the tab's chip title: the file's own name, and what it is compared
+ * against.
+ * @param props - the title seat's tab information and the copy binder.
+ * @returns the chip's text, or nothing while the tab carries no file.
+ */
+export function DiffTabTitle({ t, useTabInfo }: PropsRuntime<'sidebar.right.pane.tab.title'> & PropsLocale<'panel.git'>): ReactNode {
   const { tab } = useTabInfo()
   const params = tab.navigation.params as GitDiffTabParams | undefined
   const path = params?.path ?? ''
   if (path.length === 0) return null
-  return splitPath(path).name
+  const label = comparisonLabel(t, params)
+  const name = splitPath(path).name
+  return label.length === 0 ? name : `${name} (${label})`
 }

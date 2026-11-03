@@ -50,9 +50,12 @@ One right-sidebar page type, reached from the guide card:
   in place, right under its row: a type badge, the file's own name, the directory,
   and the status letter;
 - clicking a changed path — in a commit, or in **changes** — opens it in **its own
-  tab**, with the file's name on the chip, the line totals, and the patch drawn
-  side by side with both line numbers (or unified, one click away). Several files
-  can be open at once, each tab keeping the comparison it was opened for;
+  tab**, the way a diff editor shows it: a breadcrumb from the repository down to
+  the file, a chip naming the file and the version it is compared against, the
+  line totals, both sides' line numbers, and the **changed words highlighted
+  inside the changed lines** rather than the whole line tinted. Unified is one
+  click away for a narrow pane. Several files can be open at once, each tab
+  keeping the comparison it was opened for;
 - the repository list folds to the current selection, so a machine with many
   checkouts keeps the history and the commit box in view.
 
@@ -173,7 +176,7 @@ against real harness code instead of doubles of it.
 ```
 npm install
 npm run typecheck      # tsc, against the harness declarations
-npm test               # 15 parser + 7 graph-layout + 3 file-badge + 5 diff-view checks
+npm test               # 15 parser + 7 graph-layout + 3 file-badge + 9 diff-view checks
 npm run test:live      # 20 checks against real repositories in a temp dir
 npm run build          # lib/index.js (ESM) and lib/client.js (module-table factory)
 npm run verify:host    # mounts the plugin, calls every tool, exercises every route

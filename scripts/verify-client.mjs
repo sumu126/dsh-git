@@ -321,6 +321,55 @@ assert.equal([...second.seats.values()].filter(seat => seat.options.name === 'to
 await second.dispose()
 assert.equal(second.seats.size, 0, 'and unloads clean')
 
+// ---- The shipped bundle ----------------------------------------------------
+//
+// The checks above run the TypeScript sources. What a deployment loads is
+// `lib/client.js`: a module-table factory registered on `window.__ModuleLoader__`.
+// A banner or footer mistake, or an external that the shell does not seed, would
+// leave a bundle that never registers anything — and every check above would
+// still pass. So the built artifact is loaded the way the shell loads it, through
+// a stand-in module table, and then mounted.
+
+const bundleSource = await import('node:fs').then(fs => fs.readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8'))
+let handoff
+// The bundle reads `window.location` for its routes, so the stand-in window is
+// the one this check already gave it, plus the module table.
+const loaderWindow = globalThis.window
+loaderWindow.__ModuleLoader__ = {
+  load: (entry) => { handoff = entry },
+}
+// The bundle is a classic script whose body calls the loader, not an ES module.
+new Function('window', bundleSource)(loaderWindow)
+assert.ok(handoff, 'the bundle announces itself to the module table on load')
+assert.equal(handoff.id, 'dsh-git', 'under the package identity the shell dispatches on')
+assert.equal(typeof handoff.factory, 'function', 'as a factory, which is what the module table stores')
+
+const jsxRuntime = await import('react/jsx-runtime')
+const requested = []
+const builtModule = handoff.factory((name) => {
+  requested.push(name)
+  if (name === 'react/jsx-runtime') return jsxRuntime
+  throw new Error(`the bundle asked for a platform module the shell does not seed: ${name}`)
+})
+assert.deepEqual([...new Set(requested)], ['react/jsx-runtime'], 'the bundle needs only React\'s JSX runtime from the shell')
+assert.equal(typeof builtModule.apply, 'function', 'the built module exports apply')
+assert.deepEqual(builtModule.inject, ['slots', 'locale', 'sidebarRightTabs'], 'and the same declared services as the source')
+
+const built = makeContext()
+builtModule.apply(built.ctx)
+const builtBody = [...built.seats.values()].find(seat => seat.options.name === 'sidebar.right.pane.tab')
+assert.ok(builtBody, 'the built bundle registers the panel body')
+assert.deepEqual([...built.tabTypes.keys()], [GIT_TAB_ID], 'and the tab type')
+assert.equal([...built.seats.values()].filter(seat => seat.options.name === 'tool.call.toolview').length, TOOL_ROW_KEYS.length,
+  'and one row per git tool')
+const builtFace = builtBody.options.inject()
+await settle()
+const builtState = builtFace.hooks.gitPanel.getSnapshot()
+assert.equal(builtState.phase, 'ready', `and its panel reads the host (${builtState.phase}: ${builtState.message ?? ''})`)
+await built.dispose()
+assert.equal(built.seats.size, 0, 'and unloads clean')
+console.log(`bundle: lib/client.js loads through a module table, asks for ${[...new Set(requested)].join(', ')}, and registers the same surface`)
+
 // ---- The declared surface is the activation gate ---------------------------
 //
 // The three services above are declared, not read optionally: a shell that

@@ -116,13 +116,17 @@ npm install
 npm run typecheck      # tsc, against the harness declarations
 npm test               # 15 parser checks
 npm run test:live      # 20 checks against real repositories in a temp dir
+npm run build          # lib/index.js (ESM) and lib/client.js (module-table factory)
 npm run verify:host    # mounts the plugin, calls every tool, validates its output schema
-npm run verify:client  # runs the browser half's apply against node doubles
 npm run verify:cards   # what the client's row reads out of metadata
+npm run verify:client  # runs the browser half against node doubles, then loads lib/client.js
 npm run verify:loader  # composition through the real Loader, then unloads the row
 npm run verify:desktop # the built plugin on the app's OWN 0.2.1 runtime (see below)
-npm run build          # lib/index.js (ESM) and lib/client.js (module-table factory)
 ```
+
+`verify:client` reads `lib/client.js` as well as the sources — a banner or an
+external that the shell does not seed would be a bundle that never registers
+anything, and every source-level check would still pass. So build before it.
 
 `verify:desktop` runs the built artifacts against the desktop application's own
 runtime — its `@deepseek-ai/dsh-tools` and Schemastery, imported straight out of

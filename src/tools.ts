@@ -211,7 +211,7 @@ function branchPhrase(repo: RepoSummary): string {
   const position = repo.ahead > 0 || repo.behind > 0
     ? ` (${repo.ahead > 0 ? `ahead ${String(repo.ahead)}` : ''}${repo.ahead > 0 && repo.behind > 0 ? ', ' : ''}${repo.behind > 0 ? `behind ${String(repo.behind)}` : ''})`
     : ''
-  return `${repo.branch ?? 'unborn branch'}${repo.upstream === null ? '' : ` 鈫?${repo.upstream}`}${position}`
+  return `${repo.branch ?? 'unborn branch'}${repo.upstream === null ? '' : ` → ${repo.upstream}`}${position}`
 }
 
 /**
@@ -234,14 +234,14 @@ export function statusText(
   limit = 50,
 ): string {
   const lines = [
-    `${status.repo.name} 路 ${branchPhrase(status.repo)} 路 ${dirtyPhrase(status.repo)}`,
+    `${status.repo.name} · ${branchPhrase(status.repo)} · ${dirtyPhrase(status.repo)}`,
   ]
   if (status.files.length === 0) {
     lines.push('The working tree is clean.')
     return lines.join('\n')
   }
   for (const file of status.files.slice(0, limit)) {
-    const moved = file.origPath === undefined ? '' : ` 鈫?${file.origPath}`
+    const moved = file.origPath === undefined ? '' : ` ← ${file.origPath}`
     const flags = file.kind === 'untracked' ? '??' : `${file.index}${file.worktree}`
     lines.push(`${flags}  ${file.path}${moved}`)
   }
@@ -259,7 +259,7 @@ function commitText(commit: CommitSummary): string {
 
 /** One changed path in a diff, as text. */
 function diffFileText(file: DiffFile): string {
-  return file.origPath === undefined ? `${file.status} ${file.path}` : `${file.status} ${file.origPath} 鈫?${file.path}`
+  return file.origPath === undefined ? `${file.status} ${file.path}` : `${file.status} ${file.origPath} → ${file.path}`
 }
 
 /** A value that survives JSON, as the session log stores presentation metadata. */
@@ -486,7 +486,7 @@ export function applyGitTools(ctx: Context, face: GitToolsFace): void {
       render: (_args, value) => [{
         type: 'text',
         text: [
-          `${value.repo.name} 路 ${value.scope}${value.ref === undefined ? '' : ` ${value.ref}`} 路 ${String(value.files.length)} file(s), +${String(value.additions)} 鈭?{String(value.deletions)}${value.truncated ? ' (patch cut)' : ''}`,
+          `${value.repo.name} · ${value.scope}${value.ref === undefined ? '' : ` ${value.ref}`} · ${String(value.files.length)} file(s), +${String(value.additions)} −${String(value.deletions)}${value.truncated ? ' (patch cut)' : ''}`,
           ...value.files.map(diffFileText),
           value.patch.length === 0 ? 'No textual change.' : value.patch,
         ].join('\n'),
@@ -603,8 +603,8 @@ export function applyGitTools(ctx: Context, face: GitToolsFace): void {
       render: (_args, value) => [{
         type: 'text',
         text: [
-          `${value.repo.name} 路 on ${value.current ?? 'a detached HEAD'}`,
-          ...value.branches.map(branch => `${branch.current ? '*' : ' '} ${branch.name}${branch.upstream === null ? '' : ` 鈫?${branch.upstream}`}${branch.track === 'gone' ? ' [gone]' : branch.ahead > 0 || branch.behind > 0 ? ` [${branch.ahead > 0 ? `ahead ${String(branch.ahead)}` : ''}${branch.ahead > 0 && branch.behind > 0 ? ', ' : ''}${branch.behind > 0 ? `behind ${String(branch.behind)}` : ''}]` : ''}  ${branch.subject}`),
+          `${value.repo.name} · on ${value.current ?? 'a detached HEAD'}`,
+          ...value.branches.map(branch => `${branch.current ? '*' : ' '} ${branch.name}${branch.upstream === null ? '' : ` → ${branch.upstream}`}${branch.track === 'gone' ? ' [gone]' : branch.ahead > 0 || branch.behind > 0 ? ` [${branch.ahead > 0 ? `ahead ${String(branch.ahead)}` : ''}${branch.ahead > 0 && branch.behind > 0 ? ', ' : ''}${branch.behind > 0 ? `behind ${String(branch.behind)}` : ''}]` : ''}  ${branch.subject}`),
         ].join('\n'),
       }],
       presentationMeta: (_args, value) => meta('branches', {

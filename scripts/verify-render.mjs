@@ -176,19 +176,26 @@ const open = render(snapshot({
   selectedCommit: 'aaaaaaaaaaaaaaaa',
   commitDiff: {
     repo: SUMMARY, scope: 'commit', ref: 'aaaaaaaaaaaaaaaa',
-    files: [{ status: 'M', path: 'alpha.txt' }, { status: 'A', path: 'brand new.txt' }],
+    files: [{ status: 'M', path: 'src/client/GitPanel.tsx' }, { status: 'A', path: 'scripts/verify-client.mjs' }],
     additions: 2, deletions: 0, patch: '+two\n+new\n', truncated: false,
   },
-  commitFile: 'alpha.txt',
+  commitFile: 'src/client/GitPanel.tsx',
   commitFileDiff: {
     repo: SUMMARY, scope: 'commit', ref: 'aaaaaaaaaaaaaaaa',
-    files: [{ status: 'M', path: 'alpha.txt' }], additions: 1, deletions: 0, patch: '+alpha\n', truncated: false,
+    files: [{ status: 'M', path: 'src/client/GitPanel.tsx' }], additions: 1, deletions: 0, patch: '+alpha\n', truncated: false,
   },
 }))
-assert.match(open, /这次提交的改动/u, 'an opened commit shows its own changes')
-assert.match(open, /alpha\.txt/u, 'its changed paths are listed')
-assert.match(open, /brand new\.txt/u)
-assert.match(open, /\+alpha/u, 'and the chosen path\'s patch is shown')
+assert.match(open, /GitPanel\.tsx/u, 'an opened commit lists the files it changed')
+assert.match(open, /verify-client\.mjs/u)
+assert.match(open, /TSX/u, 'each row carries its type badge')
+assert.match(open, /src\/client/u, 'and the directory beside the name')
+assert.match(open, /\+alpha/u, 'the chosen path\'s patch is shown')
+// Inline, not appended after the whole history: the files appear before the next
+// commit's subject, which is what makes the expansion belong to its row.
+assert.ok(
+  open.indexOf('GitPanel.tsx') < open.indexOf('work on main'),
+  'the changed files sit inside the list, under the commit they belong to',
+)
 
 const mergeCommit = render(snapshot({
   selectedCommit: 'aaaaaaaaaaaaaaaa',

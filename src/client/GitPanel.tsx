@@ -13,12 +13,13 @@
  * @module dsh-git/src/client/GitPanel
  */
 
-import { useState, type KeyboardEvent, type ReactNode } from 'react'
+import { Fragment, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { Capabilities, CommitSummary, DiffPayload, RepoStatus, RepoSummary } from '../contract.ts'
+import type { Capabilities, CommitSummary, DiffFile, DiffPayload, RepoStatus, RepoSummary } from '../contract.ts'
 import { COMMIT_NEEDS_MESSAGE, type GitPanelActions, type GitPanelSnapshot } from './panel.ts'
 import { GRAPH_COLORS, edgePath, layoutGraph } from './graph.ts'
+import { fileBadge, splitPath } from './file-badge.ts'
 import styles from './panel.module.css'
 
 /** What the tab body's slot entry injects. */
@@ -200,11 +201,15 @@ function ChangeRow(
   const staged = file.index !== '.' && file.index !== ' '
   const unstaged = file.kind === 'untracked' || (file.worktree !== '.' && file.worktree !== ' ')
   const letters = file.kind === 'untracked' ? '??' : `${file.index}${file.worktree}`
+  const badge = fileBadge(file.path)
+  const { directory, name } = splitPath(file.path)
   return (
-    <li className={styles.file}>
-      <span className={styles.letters} data-kind={file.kind}>{letters}</span>
-      <span className={styles.filePath} title={file.path}>{file.path}</span>
+    <li className={styles.file} title={file.path}>
+      <span className={`${styles.badge} ${styles[`tone-${badge.tone}`] ?? ''}`}>{badge.label}</span>
+      <span className={styles.fileName}>{name}</span>
+      {directory.length === 0 ? null : <span className={styles.fileDir}>{directory}</span>}
       {file.origPath === undefined ? null : <span className={styles.origPath}>← {file.origPath}</span>}
+      <span className={styles.fileLetters} data-kind={file.kind}>{letters}</span>
       {enabled
         ? (
           <span className={styles.fileActions}>
@@ -314,6 +319,10 @@ const LANE_COLORS = [
 const ROW_HEIGHT = 46
 const LANE_WIDTH = 12
 const LANE_PAD = 9
+/** A changed-file row, the patch box under the list, and the two note rows. */
+const FILE_ROW = 24
+const PATCH_BOX = 240
+const NOTE_ROW = 32
 
 /** The refs a commit carries, as chips: the current branch first. */
 function Refs({ refs }: { refs: readonly string[] }): ReactNode {
@@ -346,7 +355,42 @@ function shortDate(date: string): string {
   return date.length >= 16 ? `${date.slice(5, 10)} ${date.slice(11, 16)}` : date
 }
 
-/** The graph: every commit, its lane, and the edges that join it to its parents. */
+/** One changed path of an open commit: type badge, name, directory, status. */
+function CommitFileRow(
+  { t, file, active, onOpen }: { t: GitPanelProps['t'], file: DiffFile, active: boolean, onOpen: () => void },
+): ReactNode {
+  const badge = fileBadge(file.path)
+  const { directory, name } = splitPath(file.path)
+  const status = file.status.charAt(0)
+  const title = file.origPath === undefined ? file.path : `${file.origPath} → ${file.path}`
+  return (
+    <li>
+      <button
+        type="button"
+        className={active ? `${styles.commitFile} ${styles.commitFileActive}` : styles.commitFile}
+        onClick={onOpen}
+        title={title}
+        aria-label={t('showFile', { path: file.path })}
+      >
+        <span className={`${styles.badge} ${styles[`tone-${badge.tone}`] ?? ''}`}>{badge.label}</span>
+        <span className={styles.fileName}>{name}</span>
+        {directory.length === 0 ? null : <span className={styles.fileDir}>{directory}</span>}
+        <span className={`${styles.fileStatus} ${styles[`status${status}`] ?? ''}`}>{status}</span>
+      </button>
+    </li>
+  )
+}
+
+/**
+ * The graph: every commit, its lane, and the edges that join it to its parents.
+ *
+ * A commit opens **in place**: clicking one inserts its changed files under its
+ * own row, and one of those shows its patch in the box below the list. That is
+ * the layout a log view has, so the reader never loses the commit they opened.
+ * The whole picture's geometry depends on that insertion, which is why the
+ * expansion's height is computed from the row and box constants rather than
+ * measured: the lane's offsets and the SVG have to agree before anything renders.
+ */
 function Graph(
   { t, state, actions }: { t: GitPanelProps['t'], state: GitPanelSnapshot, actions: GitPanelActions },
 ): ReactNode {
@@ -354,10 +398,21 @@ function Graph(
   const lanes = Math.max(1, Math.min(layout.laneCount, 6))
   const gutter = lanes * LANE_WIDTH + LANE_PAD
   const x = (lane: number): number => LANE_PAD / 2 + Math.min(lane, lanes - 1) * LANE_WIDTH + LANE_WIDTH / 2
-  const y = (row: number): number => row * ROW_HEIGHT + ROW_HEIGHT / 2
   const open = state.selectedCommit
-  const openCommit = state.commits.find(commit => commit.hash === open)
+  const openIndex = open === null ? -1 : state.commits.findIndex(commit => commit.hash === open)
+  const files = state.commitDiff?.files ?? []
+  const loading = state.commitLoading || state.commitDiff === null
+  // What the open commit inserts below its row: the file list, plus the patch box
+  // once one file is shown.
+  const expansion = openIndex < 0
+    ? 0
+    : loading || files.length === 0
+      ? NOTE_ROW
+      : files.length * FILE_ROW + (state.commitFile === null ? 0 : PATCH_BOX)
+  const y = (row: number): number =>
+    row * ROW_HEIGHT + ROW_HEIGHT / 2 + (openIndex >= 0 && row > openIndex ? expansion : 0)
   const total = state.commits.length
+  const totalHeight = total * ROW_HEIGHT + expansion
 
   return (
     <section className={styles.section}>
@@ -377,8 +432,8 @@ function Graph(
       {total === 0
         ? null
         : (
-          <div className={styles.graph} style={{ height: `${String(total * ROW_HEIGHT)}px` }}>
-            <svg className={styles.graphInk} width={gutter} height={total * ROW_HEIGHT} aria-hidden="true">
+          <div className={styles.graph} style={{ height: `${String(totalHeight)}px` }}>
+            <svg className={styles.graphInk} width={gutter} height={totalHeight} aria-hidden="true">
               {layout.edges.map(edge => (
                 <path
                   key={`${edge.from}-${edge.to}`}
@@ -403,25 +458,63 @@ function Graph(
               ))}
             </svg>
             <ul className={styles.commits} style={{ paddingLeft: `${String(gutter)}px` }}>
-              {state.commits.map(commit => (
-                <li key={commit.hash} className={styles.commitItem} style={{ height: `${String(ROW_HEIGHT)}px` }}>
-                  <button
-                    type="button"
-                    className={commit.hash === open ? `${styles.commit} ${styles.commitOpen}` : styles.commit}
-                    onClick={() => { actions.openCommit(commit.hash) }}
-                    title={`${commit.short} ${commit.subject}`}
-                  >
-                    <span className={styles.commitLine}>
-                      <span className={styles.commitSubject}>{commit.subject}</span>
-                      <Refs refs={commit.refs} />
-                    </span>
-                    <span className={styles.commitMeta}>
-                      <span>{commit.author}</span>
-                      <span className={styles.commitDate}>{shortDate(commit.date)}</span>
-                      <span className={styles.commitHash}>{commit.short}</span>
-                    </span>
-                  </button>
-                </li>
+              {state.commits.map((commit, index) => (
+                <Fragment key={commit.hash}>
+                  <li className={styles.commitItem} style={{ height: `${String(ROW_HEIGHT)}px` }}>
+                    <button
+                      type="button"
+                      className={commit.hash === open ? `${styles.commit} ${styles.commitOpen}` : styles.commit}
+                      onClick={() => { actions.openCommit(commit.hash) }}
+                      title={`${commit.short} ${commit.subject}`}
+                    >
+                      <span className={styles.commitLine}>
+                        <span className={styles.commitSubject}>{commit.subject}</span>
+                        <Refs refs={commit.refs} />
+                      </span>
+                      <span className={styles.commitMeta}>
+                        <span>{commit.author}</span>
+                        <span className={styles.commitDate}>{shortDate(commit.date)}</span>
+                        <span className={styles.commitHash}>{commit.short}</span>
+                      </span>
+                    </button>
+                  </li>
+                  {index !== openIndex
+                    ? null
+                    : (
+                      <li className={styles.expansion} style={{ height: `${String(expansion)}px` }}>
+                        {loading
+                          ? <p className={styles.expansionNote}>{t('loading')}</p>
+                          : files.length === 0
+                            ? <p className={styles.expansionNote}>{t('noCommitFiles')}</p>
+                            : (
+                              <>
+                                <ul className={styles.commitFiles}>
+                                  {files.map(file => (
+                                    <CommitFileRow
+                                      key={`${file.status}:${file.path}`}
+                                      t={t}
+                                      file={file}
+                                      active={file.path === state.commitFile}
+                                      onOpen={() => { actions.openCommitFile(file.path) }}
+                                    />
+                                  ))}
+                                </ul>
+                                {state.commitFile === null
+                                  ? null
+                                  : (
+                                    <div className={styles.commitPatch}>
+                                      {state.commitFileLoading
+                                        ? <p className={styles.expansionNote}>{t('loading')}</p>
+                                        : state.commitFileDiff === null || state.commitFileDiff.patch.length === 0
+                                          ? <p className={styles.expansionNote}>{t('noChanges')}</p>
+                                          : <pre className={styles.patch}>{state.commitFileDiff.patch}</pre>}
+                                    </div>
+                                  )}
+                              </>
+                            )}
+                      </li>
+                    )}
+                </Fragment>
               ))}
             </ul>
           </div>
@@ -434,47 +527,6 @@ function Graph(
           </div>
         )
         : null}
-      {openCommit === undefined
-        ? null
-        : (
-          <div className={styles.commitDetail}>
-            <SectionHead title={t('commitDetail')} meta={`${openCommit.short} · ${openCommit.author}`}>
-              <button type="button" className={styles.smallAction} onClick={() => { actions.closeCommit() }}>{t('closeCommit')}</button>
-            </SectionHead>
-            {state.commitLoading
-              ? <p className={styles.notice}>{t('loading')}</p>
-              : null}
-            {state.commitLoading || state.commitDiff === null ? null : (
-              state.commitDiff.files.length === 0
-                ? <p className={styles.notice}>{t('noCommitFiles')}</p>
-                : (
-                  <ul className={styles.files}>
-                    {state.commitDiff.files.map(file => (
-                      <li key={`${file.status}:${file.path}`}>
-                        <button
-                          type="button"
-                          className={file.path === state.commitFile ? `${styles.commitFile} ${styles.commitFileActive}` : styles.commitFile}
-                          onClick={() => { actions.openCommitFile(file.path) }}
-                          title={t('showFile', { path: file.path })}
-                        >
-                          <span className={styles.letters}>{file.status}</span>
-                          <span className={styles.filePath}>{file.path}</span>
-                          {file.origPath === undefined ? null : <span className={styles.origPath}>← {file.origPath}</span>}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )
-            )}
-            {state.commitFile === null
-              ? null
-              : state.commitFileLoading
-                ? <p className={styles.notice}>{t('loading')}</p>
-                : state.commitFileDiff === null || state.commitFileDiff.patch.length === 0
-                  ? <p className={styles.notice}>{t('noChanges')}</p>
-                  : <pre className={styles.patch}>{state.commitFileDiff.patch}</pre>}
-          </div>
-        )}
     </section>
   )
 }

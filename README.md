@@ -45,10 +45,11 @@ One right-sidebar page type, reached from the guide card:
 - **graph**: every commit across every ref, newest first, drawn in lanes — a dot
   per commit, a curve per parent, branch and tag chips on the refs that point at
   it — with the author and date. The graph opens at 50 commits and reads more on
-  demand, never more than 200. Clicking a commit opens **the files it changed**,
-  and clicking one of those shows that file's patch — the two-step a log view
-  uses, so a commit is read as "what changed, then how" rather than as one wall
-  of patch text;
+  demand, never more than 200. Clicking a commit expands **the files it changed**
+  in place, right under its row: a type badge, the file's own name, the directory,
+  and the status letter. Clicking one of those shows that file's patch in the box
+  below the list — the two-step a log view uses, so a commit is read as "what
+  changed, then how" rather than as one wall of patch text;
 - the repository list folds to the current selection, so a machine with many
   checkouts keeps the history and the commit box in view.
 
@@ -169,7 +170,7 @@ against real harness code instead of doubles of it.
 ```
 npm install
 npm run typecheck      # tsc, against the harness declarations
-npm test               # 15 parser checks + 7 graph-layout checks
+npm test               # 15 parser + 7 graph-layout + 3 file-badge checks
 npm run test:live      # 20 checks against real repositories in a temp dir
 npm run build          # lib/index.js (ESM) and lib/client.js (module-table factory)
 npm run verify:host    # mounts the plugin, calls every tool, exercises every route
